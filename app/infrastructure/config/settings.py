@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     mysql_password: str
     mysql_host: str
     mysql_port: int
-    mysql_database: str
+    mysql_schema: str
     debug: bool = False
 
     model_config = {
