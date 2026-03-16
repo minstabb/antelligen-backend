@@ -16,7 +16,7 @@ MOCK_STOCK_DATA = {
 
 MOCK_NEWS_SIGNALS: dict[str, dict] = {
     "005930": {
-        "agent": "news", "ticker": "005930",
+        "agent_name": "news", "ticker": "005930",
         "signal": "bullish", "confidence": 0.82,
         "summary": "삼성전자 AI 반도체 투자 확대 발표로 긍정적 전망",
         "key_points": [
@@ -26,7 +26,7 @@ MOCK_NEWS_SIGNALS: dict[str, dict] = {
         ],
     },
     "000660": {
-        "agent": "news", "ticker": "000660",
+        "agent_name": "news", "ticker": "000660",
         "signal": "bullish", "confidence": 0.78,
         "summary": "SK하이닉스 HBM4 양산 본격화로 실적 개선 기대",
         "key_points": [
@@ -38,7 +38,7 @@ MOCK_NEWS_SIGNALS: dict[str, dict] = {
 
 MOCK_FINANCE_SIGNALS: dict[str, dict] = {
     "005930": {
-        "agent": "finance", "ticker": "005930",
+        "agent_name": "finance", "ticker": "005930",
         "signal": "neutral", "confidence": 0.55,
         "summary": "매출 성장세 유지되나 영업이익률 소폭 하락",
         "key_points": [
@@ -48,7 +48,7 @@ MOCK_FINANCE_SIGNALS: dict[str, dict] = {
         ],
     },
     "000660": {
-        "agent": "finance", "ticker": "000660",
+        "agent_name": "finance", "ticker": "000660",
         "signal": "bullish", "confidence": 0.88,
         "summary": "HBM 매출 급증으로 역대 최대 영업이익 달성",
         "key_points": [
@@ -61,7 +61,7 @@ MOCK_FINANCE_SIGNALS: dict[str, dict] = {
 
 MOCK_DISCLOSURE_SIGNALS: dict[str, dict] = {
     "005930": {
-        "agent": "disclosure", "ticker": "005930",
+        "agent_name": "disclosure", "ticker": "005930",
         "signal": "bearish", "confidence": 0.71,
         "summary": "자기주식 처분 공시로 단기 수급 부담",
         "key_points": [
@@ -102,19 +102,19 @@ class MockSubAgentProvider(SubAgentProvider):
         signal_data = MOCK_NEWS_SIGNALS.get(ticker)
         if signal_data:
             signal = InvestmentSignalResponse(**signal_data)
-            return SubAgentResponse.success_with_signal(signal, ms)
+            return SubAgentResponse.success_with_signal(signal, {"ticker": ticker}, ms)
         return SubAgentResponse.no_data("news", ms)
 
     def _finance(self, ticker: str, ms: int) -> SubAgentResponse:
         signal_data = MOCK_FINANCE_SIGNALS.get(ticker)
         if signal_data:
             signal = InvestmentSignalResponse(**signal_data)
-            return SubAgentResponse.success_with_signal(signal, ms)
+            return SubAgentResponse.success_with_signal(signal, {"ticker": ticker}, ms)
         return SubAgentResponse.no_data("finance", ms)
 
     def _disclosure(self, ticker: str, ms: int) -> SubAgentResponse:
         signal_data = MOCK_DISCLOSURE_SIGNALS.get(ticker)
         if signal_data:
             signal = InvestmentSignalResponse(**signal_data)
-            return SubAgentResponse.success_with_signal(signal, ms)
+            return SubAgentResponse.success_with_signal(signal, {"ticker": ticker}, ms)
         return SubAgentResponse.no_data("disclosure", ms)

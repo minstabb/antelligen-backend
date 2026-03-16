@@ -4,6 +4,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, field_validator
 
 from app.domains.agent.application.response.investment_signal_response import (
+    InvestmentSignal,
     InvestmentSignalResponse,
 )
 
@@ -20,6 +21,10 @@ class SubAgentResponse(BaseModel):
     data: Optional[dict[str, Any]] = None
     error_message: Optional[str] = None
     execution_time_ms: int
+    signal: Optional[InvestmentSignal] = None
+    confidence: Optional[float] = None
+    summary: Optional[str] = None
+    key_points: Optional[list[str]] = None
 
     @field_validator("agent_name")
     @classmethod
@@ -46,11 +51,16 @@ class SubAgentResponse(BaseModel):
         return self.status == AgentStatus.ERROR
 
     def get_investment_signal(self) -> Optional[InvestmentSignalResponse]:
-        if not self.is_success() or self.data is None:
+        if self.signal is None:
             return None
-        if "signal" in self.data and "confidence" in self.data:
-            return InvestmentSignalResponse(**self.data)
-        return None
+        return InvestmentSignalResponse(
+            agent_name=self.agent_name,
+            ticker=self.data.get("ticker", "") if self.data else "",
+            signal=self.signal,
+            confidence=self.confidence,
+            summary=self.summary,
+            key_points=self.key_points or [],
+        )
 
     @classmethod
     def success(
@@ -65,13 +75,20 @@ class SubAgentResponse(BaseModel):
 
     @classmethod
     def success_with_signal(
-        cls, signal: InvestmentSignalResponse, execution_time_ms: int
+        cls,
+        signal: InvestmentSignalResponse,
+        data: dict[str, Any],
+        execution_time_ms: int,
     ) -> "SubAgentResponse":
         return cls(
-            agent_name=signal.agent,
+            agent_name=signal.agent_name,
             status=AgentStatus.SUCCESS,
-            data=signal.model_dump(),
+            data=data,
             execution_time_ms=execution_time_ms,
+            signal=signal.signal,
+            confidence=signal.confidence,
+            summary=signal.summary,
+            key_points=signal.key_points,
         )
 
     @classmethod

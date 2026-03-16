@@ -103,6 +103,10 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
 | `data` | object | N | 에이전트별 응답 데이터 (성공 시 포함) |
 | `error_message` | string | N | 에러 발생 시 메시지 |
 | `execution_time_ms` | integer | Y | 처리 소요 시간 (밀리초, 0 이상) |
+| `signal` | string (enum) | N | 투자 시그널 (`bullish`, `bearish`, `neutral`) — news, finance, disclosure만 포함 |
+| `confidence` | float | N | 신뢰도 (0.0 ~ 1.0) — signal 포함 시 함께 제공 |
+| `summary` | string | N | 분석 요약 — 메인 에이전트 종합 답변 생성에 사용 |
+| `key_points` | string[] | N | 핵심 포인트 — 메인 에이전트 종합 답변 생성에 사용 |
 
 ### 상태 값 정의
 
@@ -113,6 +117,8 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
 | `no_data` | 정상 처리했으나 결과 없음 | null | null |
 
 ### JSON 예시 - Stock Agent 성공 응답
+
+stock 에이전트는 시그널 분석을 수행하지 않으므로 signal 관련 필드는 null이다.
 
 ```json
 {
@@ -126,7 +132,11 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
     "change_rate": -1.23
   },
   "error_message": null,
-  "execution_time_ms": 245
+  "execution_time_ms": 245,
+  "signal": null,
+  "confidence": null,
+  "summary": null,
+  "key_points": null
 }
 ```
 
@@ -148,7 +158,15 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
     ]
   },
   "error_message": null,
-  "execution_time_ms": 380
+  "execution_time_ms": 380,
+  "signal": "bullish",
+  "confidence": 0.82,
+  "summary": "삼성전자 AI 반도체 투자 확대 발표로 긍정적 전망",
+  "key_points": [
+    "AI 반도체 설비 투자 3조원 추가 확정",
+    "HBM4 양산 일정 앞당김",
+    "주요 외국계 증권사 목표가 상향"
+  ]
 }
 ```
 
@@ -166,7 +184,15 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
     "period": "2025-Q4"
   },
   "error_message": null,
-  "execution_time_ms": 512
+  "execution_time_ms": 512,
+  "signal": "neutral",
+  "confidence": 0.55,
+  "summary": "매출 성장세 유지되나 영업이익률 소폭 하락",
+  "key_points": [
+    "2025-Q4 매출 258조 1600억 (전년 대비 +12%)",
+    "영업이익률 2.5%로 전분기 대비 하락",
+    "반도체 부문 회복세 지속"
+  ]
 }
 ```
 
@@ -187,7 +213,15 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
     ]
   },
   "error_message": null,
-  "execution_time_ms": 290
+  "execution_time_ms": 290,
+  "signal": "bearish",
+  "confidence": 0.71,
+  "summary": "자기주식 처분 공시로 단기 수급 부담",
+  "key_points": [
+    "자기주식 500만주 처분 결정",
+    "처분 예정 기간 3개월",
+    "단기 주가 희석 우려"
+  ]
 }
 ```
 
@@ -199,7 +233,11 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
   "status": "error",
   "data": null,
   "error_message": "외부 뉴스 API 연결 시간 초과",
-  "execution_time_ms": 5000
+  "execution_time_ms": 5000,
+  "signal": null,
+  "confidence": null,
+  "summary": null,
+  "key_points": null
 }
 ```
 
@@ -211,7 +249,11 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
   "status": "no_data",
   "data": null,
   "error_message": null,
-  "execution_time_ms": 150
+  "execution_time_ms": 150,
+  "signal": null,
+  "confidence": null,
+  "summary": null,
+  "key_points": null
 }
 ```
 
@@ -219,7 +261,9 @@ Pydantic 모델: `app.domains.agent.application.response.sub_agent_response.SubA
 
 ## 3-1. Investment Signal Response Schema
 
-서브 에이전트(news, finance, disclosure)가 투자 시그널 분석 결과를 반환하는 스키마.
+서브 에이전트(news, finance, disclosure)가 투자 시그널 분석 결과를 생성할 때 사용하는 **내부 중간 모델**이다.
+
+이 모델의 필드(`signal`, `confidence`, `summary`, `key_points`)는 `SubAgentResponse`를 조립할 때 최상위 필드로 매핑된다.
 
 Pydantic 모델: `app.domains.agent.application.response.investment_signal_response.InvestmentSignalResponse`
 
@@ -227,7 +271,7 @@ Pydantic 모델: `app.domains.agent.application.response.investment_signal_respo
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| `agent` | string | Y | 에이전트 이름 (`news`, `finance`, `disclosure`) |
+| `agent_name` | string | Y | 에이전트 이름 (`news`, `finance`, `disclosure`) |
 | `ticker` | string | Y | 종목 코드 |
 | `signal` | string (enum) | Y | 투자 시그널 (`bullish`, `bearish`, `neutral`) |
 | `confidence` | float | Y | 신뢰도 (0.0 ~ 1.0) |
@@ -246,7 +290,7 @@ Pydantic 모델: `app.domains.agent.application.response.investment_signal_respo
 
 ```json
 {
-  "agent": "news",
+  "agent_name": "news",
   "ticker": "005930",
   "signal": "bullish",
   "confidence": 0.82,
@@ -263,7 +307,7 @@ Pydantic 모델: `app.domains.agent.application.response.investment_signal_respo
 
 ```json
 {
-  "agent": "finance",
+  "agent_name": "finance",
   "ticker": "005930",
   "signal": "neutral",
   "confidence": 0.55,
@@ -280,7 +324,7 @@ Pydantic 모델: `app.domains.agent.application.response.investment_signal_respo
 
 ```json
 {
-  "agent": "disclosure",
+  "agent_name": "disclosure",
   "ticker": "005930",
   "signal": "bearish",
   "confidence": 0.71,
@@ -464,4 +508,4 @@ Pydantic 모델: `app.domains.agent.application.response.investment_signal_respo
 | 항목 | 값 |
 |------|-----|
 | 스키마 버전 | 1.0.0 |
-| 최종 수정일 | 2026-03-15 |
+| 최종 수정일 | 2026-03-16 |

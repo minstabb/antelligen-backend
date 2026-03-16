@@ -10,16 +10,16 @@ class InvestmentSignal(str, Enum):
 
 
 class InvestmentSignalResponse(BaseModel):
-    agent: str
+    agent_name: str
     ticker: str
     signal: InvestmentSignal
     confidence: float
     summary: str
     key_points: list[str]
 
-    @field_validator("agent")
+    @field_validator("agent_name")
     @classmethod
-    def validate_agent(cls, v: str) -> str:
+    def validate_agent_name(cls, v: str) -> str:
         allowed = {"news", "finance", "disclosure"}
         if v not in allowed:
             raise ValueError(
