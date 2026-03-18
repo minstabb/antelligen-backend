@@ -9,3 +9,4 @@ anthropic>=0.40.0
 python-jose[cryptography]>=3.3.0
 beautifulsoup4>=4.12.0
 openai>=1.75.0
+redis[asyncio]>=5.0.0

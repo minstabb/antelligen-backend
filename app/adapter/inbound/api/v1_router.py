@@ -8,6 +8,8 @@
 from fastapi import APIRouter
 
 from app.domains.agent.adapter.inbound.api.agent_router import router as agent_router
+from app.domains.auth.adapter.inbound.api.auth_router import router as auth_router
+from app.domains.kakao_auth.adapter.inbound.api.kakao_auth_router import router as kakao_auth_router
 from app.domains.api_schema.adapter.inbound.api.api_schema_router import router as api_schema_router
 from app.domains.news.adapter.inbound.api.news_router import router as news_router
 from app.domains.post.adapter.inbound.api.post_router import router as post_router
@@ -22,5 +24,7 @@ api_v1_router.include_router(stock_router)      # STOCK: /api/v1/stock/...
 api_v1_router.include_router(agent_router)       # AGENT: /api/v1/agent/...
 api_v1_router.include_router(api_schema_router)  # AGENT SCHEMA: /api/v1/agent-schema
 api_v1_router.include_router(news_router)        # NEWS: /api/v1/news/...
+api_v1_router.include_router(auth_router)        # AUTH: /api/v1/auth/...
+api_v1_router.include_router(kakao_auth_router)  # KAKAO AUTH: /api/v1/kakao-authentication/...
 # api_v1_router.include_router(finance_router)  # 재무 에이전트
 # api_v1_router.include_router(disclosure_router)  # 공시 에이전트

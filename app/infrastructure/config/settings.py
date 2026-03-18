@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -21,6 +22,16 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
+
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: Optional[str] = None
+
+    auth_password: str
+    session_ttl_seconds: int = 3600
+
+    kakao_client_id: str
+    kakao_redirect_uri: str
 
     model_config = {
         "env_file": ".env",
