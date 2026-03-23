@@ -53,6 +53,7 @@ class SubAgentResponse(BaseModel):
     def get_investment_signal(self) -> Optional[InvestmentSignalResponse]:
         if self.signal is None:
             return None
+
         return InvestmentSignalResponse(
             agent_name=self.agent_name,
             ticker=self.data.get("ticker", "") if self.data else "",

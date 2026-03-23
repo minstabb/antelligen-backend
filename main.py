@@ -7,12 +7,13 @@ from app.adapter.inbound.api.v1_router import api_v1_router
 from app.domains.authentication.adapter.inbound.api.authentication_router import router as authentication_router
 from app.common.exception.global_exception_handler import register_exception_handlers
 from app.infrastructure.config.settings import Settings, get_settings
-from app.infrastructure.database.database import engine, Base
+from app.infrastructure.database.database import Base, engine
+from app.infrastructure.database.vector_database import VectorBase, vector_engine
 
-# ORM 모델 import — Base.metadata.create_all 시 테이블 자동 생성
-import app.domains.post.infrastructure.orm.post_orm  # noqa: F401
-import app.domains.news.infrastructure.orm.saved_article_orm  # noqa: F401
 import app.domains.account.infrastructure.orm.account_orm  # noqa: F401
+import app.domains.news.infrastructure.orm.saved_article_orm  # noqa: F401
+import app.domains.post.infrastructure.orm.post_orm  # noqa: F401
+import app.domains.stock.infrastructure.orm.stock_vector_document_orm  # noqa: F401
 
 settings: Settings = get_settings()
 
@@ -21,6 +22,10 @@ settings: Settings = get_settings()
 async def lifespan(application: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    async with vector_engine.begin() as conn:
+        await conn.run_sync(VectorBase.metadata.create_all)
+
     yield
 
 

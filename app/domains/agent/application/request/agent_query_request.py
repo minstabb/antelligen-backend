@@ -30,6 +30,7 @@ class QueryOptionsRequest(BaseModel):
     def validate_agents(cls, v: Optional[list[str]]) -> Optional[list[str]]:
         if v is None:
             return v
+
         allowed = {"stock", "news", "finance", "disclosure"}
         for agent in v:
             if agent not in allowed:
@@ -66,7 +67,8 @@ class AgentQueryRequest(BaseModel):
     def validate_ticker(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
-        v = v.strip()
-        if len(v) == 0:
+
+        value = v.strip()
+        if not value:
             raise ValueError("ticker는 비어 있을 수 없습니다")
-        return v
+        return value

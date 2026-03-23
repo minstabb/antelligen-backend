@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     mysql_host: str
     mysql_port: int
     mysql_schema: str
+    postgres_user: str
+    postgres_password: str
+    postgres_host: str
+    postgres_port: int
+    postgres_db: str
     debug: bool = False
 
     naver_client_id: str
@@ -34,6 +39,9 @@ class Settings(BaseSettings):
 
     kakao_client_id: str
     kakao_redirect_uri: str
+
+    analysis_api_finance_url: Optional[str] = None
+    analysis_api_timeout_seconds: float = 10.0
 
     model_config = {
         "env_file": ".env",

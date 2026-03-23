@@ -71,27 +71,27 @@ class ProcessAgentQueryUseCase:
         status: QueryResultStatus,
     ) -> str:
         if status == QueryResultStatus.FAILURE:
-            return "요청하신 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요."
+            return "U요청하신 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요."
 
         failed_names = [r.agent_name for r in results if r.is_error()]
         parts = []
 
-        for r in results:
-            if not r.is_success() or r.data is None:
+        for result in results:
+            if not result.is_success() or result.data is None:
                 continue
 
-            signal = r.get_investment_signal()
+            signal = result.get_investment_signal()
 
-            if r.agent_name == "stock":
+            if result.agent_name == "stock":
                 parts.append(
-                    f"{r.data.get('stock_name', '')}({r.data.get('ticker', '')}) "
-                    f"현재가 {r.data.get('current_price', 0):,}원, "
-                    f"변동률 {r.data.get('change_rate', 0)}%"
+                    f"{result.data.get('stock_name', '')}({result.data.get('ticker', '')}) "
+                    f"현재가  {result.data.get('현재가 ', 0):,} "
+                    f"변동률  {result.data.get('변동률 ', 0)}%"
                 )
             elif signal:
                 label = SIGNAL_LABEL.get(signal.signal.value, signal.signal.value)
                 parts.append(
-                    f"[{r.agent_name}] {signal.summary} "
+                    f"[{result.agent_name}] {signal.summary} "
                     f"(시그널: {label}, 신뢰도: {signal.confidence:.0%})"
                 )
 
