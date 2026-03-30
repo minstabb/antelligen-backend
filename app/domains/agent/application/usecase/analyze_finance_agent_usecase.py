@@ -10,29 +10,30 @@ from app.domains.agent.application.request.finance_analysis_request import (
 from app.domains.agent.application.response.agent_query_response import (
     AgentQueryResponse,
 )
-from app.domains.stock.application.usecase.collect_stock_data_usecase import (
-    CollectStockDataUseCase,
+from app.domains.stock.application.port.stock_repository import StockRepository
+from app.domains.stock.application.usecase.get_stored_stock_data_usecase import (
+    GetStoredStockDataUseCase,
 )
 from app.domains.stock.domain.entity.stock import Stock
-from app.domains.stock.adapter.outbound.persistence.stock_repository_impl import (
-    StockRepositoryImpl,
-)
 
 
 class AnalyzeFinanceAgentUseCase:
+    """벡터 DB에 저장된 데이터를 기반으로 재무 분석을 수행하는 UseCase"""
+
     def __init__(
         self,
-        stock_repository: StockRepositoryImpl,
-        stock_collection_usecase: CollectStockDataUseCase,
+        stock_repository: StockRepository,
+        get_stored_stock_data_usecase: GetStoredStockDataUseCase,
         finance_agent_provider: FinanceAgentProvider,
     ):
         self._stock_repository = stock_repository
-        self._stock_collection_usecase = stock_collection_usecase
+        self._get_stored_stock_data_usecase = get_stored_stock_data_usecase
         self._finance_agent_provider = finance_agent_provider
 
     async def execute(self, request: FinanceAnalysisRequest) -> AgentQueryResponse:
         stock = await self._resolve_stock(request)
-        stock_data = await self._stock_collection_usecase.execute(stock.ticker)
+        # 벡터 DB에서 저장된 데이터 조회
+        stock_data = await self._get_stored_stock_data_usecase.execute(stock.ticker)
         finance_result = await self._finance_agent_provider.analyze(
             user_query=request.query,
             stock_data=stock_data,

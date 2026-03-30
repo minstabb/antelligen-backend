@@ -20,6 +20,11 @@ class CollectedStockData:
         dividend_yield: str | None,
         document_text: str | None,
         reference_url: str | None = None,
+        # DART 재무비율
+        dart_roe: float | None = None,
+        dart_roa: float | None = None,
+        dart_debt_ratio: float | None = None,
+        dart_fiscal_year: str | None = None,
     ):
         self.ticker = ticker
         self.stock_name = stock_name
@@ -37,3 +42,8 @@ class CollectedStockData:
         self.dividend_yield = dividend_yield
         self.document_text = document_text
         self.reference_url = reference_url
+        # DART 재무비율
+        self.dart_roe = dart_roe
+        self.dart_roa = dart_roa
+        self.dart_debt_ratio = dart_debt_ratio
+        self.dart_fiscal_year = dart_fiscal_year

@@ -1,3 +1,6 @@
+from typing import Optional
+
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.domains.stock.application.port.stock_vector_repository import (
@@ -59,3 +62,42 @@ class StockVectorRepositoryImpl(StockVectorRepository):
             stored_chunk_count=stored_chunk_count,
             skipped_chunk_count=total_chunk_count - stored_chunk_count,
         )
+
+    async def find_by_entity_id(
+        self,
+        entity_id: str,
+    ) -> Optional[list[StockVectorDocument]]:
+        """entity_id(ticker)로 저장된 문서를 조회합니다. 가장 최신 dedup_key 기준."""
+        async with VectorAsyncSessionLocal() as session:
+            # 가장 최신 collected_at 기준으로 조회
+            stmt = (
+                select(StockVectorDocumentOrm)
+                .where(StockVectorDocumentOrm.entity_id == entity_id)
+                .order_by(
+                    StockVectorDocumentOrm.collected_at.desc(),
+                    StockVectorDocumentOrm.chunk_index.asc(),
+                )
+            )
+            result = await session.execute(stmt)
+            orms = result.scalars().all()
+
+            if not orms:
+                return None
+
+            # 가장 최신 dedup_key만 필터링
+            latest_dedup_key = orms[0].dedup_key
+            filtered_orms = [orm for orm in orms if orm.dedup_key == latest_dedup_key]
+
+            return [
+                StockVectorDocument(
+                    chunk_id=orm.chunk_id,
+                    entity_id=orm.entity_id,
+                    source=orm.source,
+                    dedup_key=orm.dedup_key,
+                    chunk_index=orm.chunk_index,
+                    content=orm.content,
+                    embedding_vector=list(orm.embedding_vector),
+                    collected_at=orm.collected_at,
+                )
+                for orm in filtered_orms
+            ]

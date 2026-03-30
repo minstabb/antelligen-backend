@@ -12,7 +12,12 @@ from app.domains.stock.domain.entity.raw_collected_stock_data import (
 
 class SerpStockDataStandardizer(StockDataStandardizer):
     def standardize(
-        self, raw_data: RawCollectedStockData
+        self,
+        raw_data: RawCollectedStockData,
+        dart_roe: float | None = None,
+        dart_roa: float | None = None,
+        dart_debt_ratio: float | None = None,
+        dart_fiscal_year: str | None = None,
     ) -> CollectedStockData | None:
         payload = raw_data.raw_payload
         summary = self._extract_summary(payload)
@@ -53,6 +58,10 @@ class SerpStockDataStandardizer(StockDataStandardizer):
             market_cap=market_cap,
             pe_ratio=pe_ratio,
             dividend_yield=dividend_yield,
+            dart_roe=dart_roe,
+            dart_roa=dart_roa,
+            dart_debt_ratio=dart_debt_ratio,
+            dart_fiscal_year=dart_fiscal_year,
         )
 
         collected_types = self._determine_collected_types(
@@ -92,6 +101,10 @@ class SerpStockDataStandardizer(StockDataStandardizer):
             dividend_yield=dividend_yield,
             document_text=document_text,
             reference_url=reference_url,
+            dart_roe=dart_roe,
+            dart_roa=dart_roa,
+            dart_debt_ratio=dart_debt_ratio,
+            dart_fiscal_year=dart_fiscal_year,
         )
 
     def _extract_summary(self, data: dict) -> dict:
@@ -189,6 +202,10 @@ class SerpStockDataStandardizer(StockDataStandardizer):
         market_cap: str | None,
         pe_ratio: str | None,
         dividend_yield: str | None,
+        dart_roe: float | None = None,
+        dart_roa: float | None = None,
+        dart_debt_ratio: float | None = None,
+        dart_fiscal_year: str | None = None,
     ) -> str | None:
         lines = [
             f"Ticker: {ticker}",
@@ -210,6 +227,20 @@ class SerpStockDataStandardizer(StockDataStandardizer):
         for label, value in optional_lines:
             if value:
                 lines.append(f"{label}: {value}")
+
+        # DART 재무비율 추가
+        if dart_roe is not None or dart_roa is not None or dart_debt_ratio is not None:
+            lines.append("")  # 빈 줄 추가
+            if dart_fiscal_year:
+                lines.append(f"[DART 재무비율 - {dart_fiscal_year}년]")
+            else:
+                lines.append("[DART 재무비율]")
+            if dart_roe is not None:
+                lines.append(f"ROE (자기자본이익률): {dart_roe}%")
+            if dart_roa is not None:
+                lines.append(f"ROA (총자산이익률): {dart_roa}%")
+            if dart_debt_ratio is not None:
+                lines.append(f"부채비율: {dart_debt_ratio}%")
 
         if len(lines) <= 3:
             return None

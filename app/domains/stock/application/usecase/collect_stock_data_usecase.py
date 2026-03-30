@@ -74,7 +74,42 @@ class CollectStockDataUseCase:
                 message=f"Unable to collect stock data from external source: {ticker}",
             )
 
-        collected_data = self._stock_data_standardizer.standardize(raw_data)
+        # DART 재무비율 조회 (표준화 전에 수행하여 document_text에 포함)
+        dart_roe = None
+        dart_roa = None
+        dart_debt_ratio = None
+        dart_fiscal_year = None
+        if self._dart_financial_ratios_usecase:
+            try:
+                dart_result = await self._dart_financial_ratios_usecase.execute(
+                    ticker=stock.ticker
+                )
+                if dart_result:
+                    dart_roe = dart_result.roe
+                    dart_roa = dart_result.roa
+                    dart_debt_ratio = dart_result.debt_ratio
+                    dart_fiscal_year = dart_result.fiscal_year
+                    logger.info(
+                        "[Stock Collect] DART 재무비율 조회 성공 - ticker=%s roe=%s roa=%s debt_ratio=%s",
+                        stock.ticker,
+                        dart_roe,
+                        dart_roa,
+                        dart_debt_ratio,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[Stock Collect] DART 재무비율 조회 실패 - ticker=%s error=%s",
+                    stock.ticker,
+                    str(e),
+                )
+
+        collected_data = self._stock_data_standardizer.standardize(
+            raw_data,
+            dart_roe=dart_roe,
+            dart_roa=dart_roa,
+            dart_debt_ratio=dart_debt_ratio,
+            dart_fiscal_year=dart_fiscal_year,
+        )
         if collected_data is None:
             logger.error(
                 "[Stock Collect] Standardization failed - ticker=%s source=%s",
@@ -170,26 +205,15 @@ class CollectStockDataUseCase:
                 for chunk in chunk_entities
             ]
 
-        # DART 재무비율 조회 (선택적)
+        # DART 재무비율 응답 (이미 조회하여 document_text에 포함됨)
         dart_financial_ratios = None
-        if self._dart_financial_ratios_usecase:
-            try:
-                dart_result = await self._dart_financial_ratios_usecase.execute(
-                    ticker=collected_data.ticker
-                )
-                if dart_result:
-                    dart_financial_ratios = StockDartFinancialRatioResponse(
-                        roe=dart_result.roe,
-                        roa=dart_result.roa,
-                        debt_ratio=dart_result.debt_ratio,
-                        fiscal_year=dart_result.fiscal_year,
-                    )
-            except Exception as e:
-                logger.warning(
-                    "[Stock Collect] DART 재무비율 조회 실패 - ticker=%s error=%s",
-                    collected_data.ticker,
-                    str(e),
-                )
+        if collected_data.dart_roe is not None or collected_data.dart_roa is not None or collected_data.dart_debt_ratio is not None:
+            dart_financial_ratios = StockDartFinancialRatioResponse(
+                roe=collected_data.dart_roe,
+                roa=collected_data.dart_roa,
+                debt_ratio=collected_data.dart_debt_ratio,
+                fiscal_year=collected_data.dart_fiscal_year,
+            )
 
         return StockCollectionResponse(
             ticker=collected_data.ticker,
