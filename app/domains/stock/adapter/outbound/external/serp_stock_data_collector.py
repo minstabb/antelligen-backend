@@ -1,18 +1,17 @@
 from datetime import datetime, timezone
 
-import httpx
-
 from app.domains.stock.application.port.stock_data_collector import StockDataCollector
 from app.domains.stock.domain.entity.raw_collected_stock_data import (
     RawCollectedStockData,
 )
+from app.infrastructure.external.serp_client import SerpClient
 
 
 class SerpStockDataCollector(StockDataCollector):
     BASE_URL = "https://serpapi.com/search"
 
     def __init__(self, api_key: str):
-        self._api_key = api_key
+        self._client = SerpClient(api_key=api_key)
 
     async def collect(
         self, ticker: str, stock_name: str, market: str
@@ -21,13 +20,9 @@ class SerpStockDataCollector(StockDataCollector):
             "engine": "google_finance",
             "q": self._build_query(ticker=ticker, market=market),
             "hl": "ko",
-            "api_key": self._api_key,
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(self.BASE_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
+        data = await self._client.get(params)
 
         if not isinstance(data, dict):
             return None

@@ -1,19 +1,16 @@
-import httpx
-
 from app.domains.news.application.port.news_search_provider import (
     NewsSearchProvider,
     NewsSearchResult,
 )
 from app.domains.news.domain.entity.news_article import NewsArticle
+from app.infrastructure.external.serp_client import SerpClient
 
 
 class SerpNewsSearchProvider(NewsSearchProvider):
     """SerpAPI Google News 검색 어댑터"""
 
-    BASE_URL = "https://serpapi.com/search"
-
     def __init__(self, api_key: str):
-        self._api_key = api_key
+        self._client = SerpClient(api_key=api_key)
 
     async def search(
         self, keyword: str, page: int, page_size: int
@@ -27,13 +24,9 @@ class SerpNewsSearchProvider(NewsSearchProvider):
             "hl": "ko",
             "start": start,
             "num": page_size,
-            "api_key": self._api_key,
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(self.BASE_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
+        data = await self._client.get(params)
 
         news_results = data.get("news_results", [])
 

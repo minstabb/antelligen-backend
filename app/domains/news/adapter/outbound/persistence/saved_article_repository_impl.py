@@ -1,6 +1,6 @@
 import hashlib
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.news.application.port.saved_article_repository import (
@@ -40,3 +40,17 @@ class SavedArticleRepositoryImpl(SavedArticleRepository):
         if orm is None:
             return None
         return SavedArticleMapper.to_entity(orm)
+
+    async def find_all(self, page: int, page_size: int) -> tuple[list[SavedArticle], int]:
+        offset = (page - 1) * page_size
+        count_result = await self._db.execute(select(func.count()).select_from(SavedArticleOrm))
+        total = count_result.scalar_one()
+        stmt = (
+            select(SavedArticleOrm)
+            .order_by(SavedArticleOrm.saved_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        result = await self._db.execute(stmt)
+        items = [SavedArticleMapper.to_entity(orm) for orm in result.scalars().all()]
+        return items, total

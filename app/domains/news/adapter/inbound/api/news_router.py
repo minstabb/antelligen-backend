@@ -1,6 +1,10 @@
-from fastapi import APIRouter, Query, Depends, Path
+from typing import Optional
+
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Query, Depends, Path, Cookie, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exception.app_exception import AppException
 from app.common.response.base_response import BaseResponse
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
 from app.domains.news.adapter.outbound.external.article_content_scraper import (
@@ -34,6 +38,9 @@ from app.domains.news.application.response.save_article_response import (
 from app.domains.news.application.response.search_news_response import (
     SearchNewsResponse,
 )
+from app.domains.news.application.response.saved_articles_response import (
+    SavedArticlesResponse,
+)
 from app.domains.news.application.usecase.analyze_article_usecase import (
     AnalyzeArticleUseCase,
 )
@@ -44,9 +51,25 @@ from app.domains.news.application.usecase.save_article_usecase import (
     SaveArticleUseCase,
 )
 from app.domains.news.application.usecase.search_news_usecase import SearchNewsUseCase
+from app.domains.news.adapter.outbound.persistence.article_content_repository_impl import ArticleContentRepositoryImpl
+from app.domains.news.adapter.outbound.persistence.user_saved_article_repository_impl import UserSavedArticleRepositoryImpl
+from app.domains.news.application.request.save_user_article_request import SaveUserArticleRequest
+from app.domains.news.application.response.save_user_article_response import SaveUserArticleResponse
+from app.domains.news.application.usecase.save_user_article_usecase import SaveUserArticleUseCase
+from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.database import get_db
 from app.infrastructure.database.vector_database import get_vector_db
+
+SESSION_KEY_PREFIX = "session:"
+
+
+def _extract_token(user_token: Optional[str], authorization: Optional[str]) -> Optional[str]:
+    if user_token:
+        return user_token
+    if authorization and authorization.startswith("Bearer "):
+        return authorization.removeprefix("Bearer ").strip()
+    return None
 
 router = APIRouter(prefix="/news", tags=["News"])
 
@@ -64,6 +87,48 @@ async def search_news(
     request = SearchNewsRequest(keyword=keyword, page=page, page_size=page_size)
     result = await usecase.execute(request)
     return BaseResponse.ok(data=result)
+
+
+@router.get("/saved", response_model=BaseResponse[SavedArticlesResponse])
+async def get_saved_articles(
+    page: int = Query(1, ge=1, description="페이지 번호"),
+    page_size: int = Query(10, ge=1, le=100, description="페이지 크기"),
+    user_token: Optional[str] = Cookie(default=None),
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """인증된 사용자의 관심 기사 목록을 최신순으로 반환한다."""
+    token = _extract_token(user_token, authorization)
+    if not token:
+        raise AppException(status_code=401, message="인증이 필요합니다.")
+
+    account_id_str = await redis.get(f"{SESSION_KEY_PREFIX}{token}")
+    if not account_id_str:
+        raise AppException(status_code=401, message="세션이 만료되었거나 유효하지 않습니다.")
+
+    account_id = int(account_id_str)
+    repository = UserSavedArticleRepositoryImpl(db)
+    articles, total = await repository.find_all_by_user(account_id=account_id, page=page, page_size=page_size)
+    items = [
+        SaveArticleResponse(
+            article_id=a.article_id,
+            title=a.title,
+            link=a.link,
+            source=a.source,
+            published_at=a.published_at,
+            snippet=a.snippet,
+            content=None,
+            saved_at=a.saved_at,
+        )
+        for a in articles
+    ]
+    return BaseResponse.ok(data=SavedArticlesResponse(
+        articles=items,
+        page=page,
+        page_size=page_size,
+        total_count=total,
+    ))
 
 
 @router.post("/save", response_model=BaseResponse[SaveArticleResponse], status_code=201)
@@ -91,6 +156,65 @@ async def analyze_article(
     usecase = AnalyzeArticleUseCase(repository=repository, analysis_provider=analysis_provider)
     result = await usecase.execute(article_id)
     return BaseResponse.ok(data=result)
+
+
+@router.post("/bookmark", response_model=BaseResponse[SaveUserArticleResponse], status_code=201)
+async def bookmark_article(
+    request: SaveUserArticleRequest,
+    user_token: Optional[str] = Cookie(default=None),
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+    vector_db: AsyncSession = Depends(get_vector_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """인증된 사용자가 관심 기사를 저장한다. 메타데이터는 PostgreSQL(구조화), 본문은 JSONB에 저장된다."""
+    token = _extract_token(user_token, authorization)
+    if not token:
+        raise AppException(status_code=401, message="인증이 필요합니다.")
+
+    account_id_str = await redis.get(f"{SESSION_KEY_PREFIX}{token}")
+    if not account_id_str:
+        raise AppException(status_code=401, message="세션이 만료되었거나 유효하지 않습니다.")
+
+    account_id = int(account_id_str)
+
+    usecase = SaveUserArticleUseCase(
+        user_article_repo=UserSavedArticleRepositoryImpl(db),
+        content_repo=ArticleContentRepositoryImpl(vector_db),
+        content_provider=ArticleContentScraper(),
+    )
+    result = await usecase.execute(account_id=account_id, request=request)
+    return BaseResponse.ok(data=result)
+
+
+@router.delete("/bookmark/{article_id}", response_model=BaseResponse[None])
+async def delete_bookmark(
+    article_id: int = Path(..., ge=1, description="삭제할 기사 ID"),
+    user_token: Optional[str] = Cookie(default=None),
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """인증된 사용자가 본인이 저장한 관심 기사를 삭제한다."""
+    token = _extract_token(user_token, authorization)
+    if not token:
+        raise AppException(status_code=401, message="인증이 필요합니다.")
+
+    account_id_str = await redis.get(f"{SESSION_KEY_PREFIX}{token}")
+    if not account_id_str:
+        raise AppException(status_code=401, message="세션이 만료되었거나 유효하지 않습니다.")
+
+    account_id = int(account_id_str)
+    repo = UserSavedArticleRepositoryImpl(db)
+
+    article = await repo.find_by_id(article_id)
+    if article is None:
+        raise AppException(status_code=404, message="저장된 기사를 찾을 수 없습니다.")
+    if article.account_id != account_id:
+        raise AppException(status_code=403, message="삭제 권한이 없습니다.")
+
+    await repo.delete_by_id(article_id)
+    return BaseResponse.ok(data=None)
 
 
 @router.get("/agent-result", response_model=BaseResponse[SubAgentResponse])

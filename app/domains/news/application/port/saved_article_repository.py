@@ -16,3 +16,7 @@ class SavedArticleRepository(ABC):
     @abstractmethod
     async def find_by_link(self, link: str) -> SavedArticle | None:
         pass
+
+    @abstractmethod
+    async def find_all(self, page: int, page_size: int) -> tuple[list[SavedArticle], int]:
+        pass

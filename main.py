@@ -24,6 +24,8 @@ from app.infrastructure.database.vector_database import VectorBase, vector_engin
 
 import app.domains.account.infrastructure.orm.account_orm  # noqa: F401
 import app.domains.news.infrastructure.orm.saved_article_orm  # noqa: F401
+import app.domains.news.infrastructure.orm.user_saved_article_orm  # noqa: F401
+import app.domains.news.infrastructure.orm.article_content_orm  # noqa: F401
 import app.domains.board.infrastructure.orm.board_orm  # noqa: F401
 import app.domains.post.infrastructure.orm.post_orm  # noqa: F401
 import app.domains.stock.infrastructure.orm.stock_vector_document_orm  # noqa: F401
@@ -89,8 +91,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.cors_allowed_frontend_url],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Cookie", "Set-Cookie"],
 )
 
 app.include_router(api_v1_router)
