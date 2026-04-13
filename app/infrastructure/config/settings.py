@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     finance_analysis_cache_ttl_seconds: int = 3600
     langsmith_tracing: bool = False
     langsmith_api_key: str = ""
-    langsmith_project: str = "stock-supporters-backend"
+    langsmith_project: str = "antelligen-backend"
     langsmith_endpoint: str = "https://api.smith.langchain.com"
 
     dart_api_key: str = ""

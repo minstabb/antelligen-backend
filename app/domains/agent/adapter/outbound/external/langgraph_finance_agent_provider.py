@@ -59,7 +59,7 @@ class LangGraphFinanceAgentProvider(FinanceAgentProvider):
         top_k: int = 3,
         langsmith_tracing: bool = False,
         langsmith_api_key: str = "",
-        langsmith_project: str = "stock-supporters-backend",
+        langsmith_project: str = "antelligen-backend",
         langsmith_endpoint: str = "https://api.smith.langchain.com",
     ):
         self._configure_langsmith(

@@ -56,6 +56,9 @@ from app.domains.news.adapter.outbound.persistence.user_saved_article_repository
 from app.domains.news.application.request.save_user_article_request import SaveUserArticleRequest
 from app.domains.news.application.response.save_user_article_response import SaveUserArticleResponse
 from app.domains.news.application.usecase.save_user_article_usecase import SaveUserArticleUseCase
+from app.domains.news.application.usecase.save_interest_article_usecase import SaveInterestArticleUseCase
+from app.domains.news.application.usecase.get_interest_article_usecase import GetInterestArticleUseCase
+from app.domains.news.application.response.save_interest_article_response import SaveInterestArticleResponse
 from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.database import get_db
@@ -184,6 +187,61 @@ async def bookmark_article(
         content_provider=ArticleContentScraper(),
     )
     result = await usecase.execute(account_id=account_id, request=request)
+    return BaseResponse.ok(data=result)
+
+
+@router.post("/interest-articles", response_model=BaseResponse[SaveInterestArticleResponse], status_code=201)
+async def save_interest_article(
+    request: SaveUserArticleRequest,
+    user_token: Optional[str] = Cookie(default=None),
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+    vector_db: AsyncSession = Depends(get_vector_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """인증된 사용자가 관심 기사를 저장하고 원문 본문을 포함한 전체 데이터를 반환한다."""
+    token = _extract_token(user_token, authorization)
+    if not token:
+        raise AppException(status_code=401, message="인증이 필요합니다.")
+
+    account_id_str = await redis.get(f"{SESSION_KEY_PREFIX}{token}")
+    if not account_id_str:
+        raise AppException(status_code=401, message="세션이 만료되었거나 유효하지 않습니다.")
+
+    account_id = int(account_id_str)
+    usecase = SaveInterestArticleUseCase(
+        user_article_repo=UserSavedArticleRepositoryImpl(db),
+        content_repo=ArticleContentRepositoryImpl(vector_db),
+        content_provider=ArticleContentScraper(),
+    )
+    result = await usecase.execute(account_id=account_id, request=request)
+    return BaseResponse.ok(data=result)
+
+
+@router.get("/interest-articles/{article_id}", response_model=BaseResponse[SaveInterestArticleResponse])
+async def get_interest_article(
+    article_id: int = Path(..., ge=1, description="조회할 기사 ID"),
+    user_token: Optional[str] = Cookie(default=None),
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+    vector_db: AsyncSession = Depends(get_vector_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """인증된 사용자가 저장한 관심 기사 단건을 원문 본문 포함하여 조회한다."""
+    token = _extract_token(user_token, authorization)
+    if not token:
+        raise AppException(status_code=401, message="인증이 필요합니다.")
+
+    account_id_str = await redis.get(f"{SESSION_KEY_PREFIX}{token}")
+    if not account_id_str:
+        raise AppException(status_code=401, message="세션이 만료되었거나 유효하지 않습니다.")
+
+    account_id = int(account_id_str)
+    usecase = GetInterestArticleUseCase(
+        user_article_repo=UserSavedArticleRepositoryImpl(db),
+        content_repo=ArticleContentRepositoryImpl(vector_db),
+    )
+    result = await usecase.execute(account_id=account_id, article_id=article_id)
     return BaseResponse.ok(data=result)
 
 

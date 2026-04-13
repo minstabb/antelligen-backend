@@ -1,5 +1,6 @@
-import httpx
-from bs4 import BeautifulSoup
+import asyncio
+
+import trafilatura
 
 from app.domains.news.application.port.article_content_provider import (
     ArticleContentProvider,
@@ -7,39 +8,23 @@ from app.domains.news.application.port.article_content_provider import (
 
 
 class ArticleContentScraper(ArticleContentProvider):
-    """기사 링크에 접근하여 본문 텍스트를 추출하는 Adapter"""
+    """trafilatura 기반 기사 본문 추출 Adapter — 광고/네비게이션 자동 분리"""
 
     async def fetch_content(self, url: str) -> str:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
+        return await asyncio.to_thread(self._extract, url)
+
+    @staticmethod
+    def _extract(url: str) -> str:
         try:
-            async with httpx.AsyncClient(
-                timeout=15.0, follow_redirects=True
-            ) as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # 불필요한 태그 제거
-            for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
-                tag.decompose()
-
-            # <article> 태그 우선, 없으면 <body> 전체
-            article_tag = soup.find("article")
-            target = article_tag if article_tag else soup.find("body")
-
-            if target is None:
+            downloaded = trafilatura.fetch_url(url)
+            if not downloaded:
                 return ""
-
-            paragraphs = target.find_all("p")
-            text = "\n".join(p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True))
-            return text if text else target.get_text(separator="\n", strip=True)
-
+            text = trafilatura.extract(
+                downloaded,
+                include_comments=False,
+                include_tables=False,
+                no_fallback=False,
+            )
+            return text or ""
         except Exception:
             return ""
