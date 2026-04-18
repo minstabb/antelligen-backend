@@ -89,3 +89,4 @@ from sqlalchemy import Column    # Domain에서 ORM 사용
 from fastapi import APIRouter    # Domain에서 FastAPI 사용
 redis.Redis(...)                 # UseCase에서 Redis 직접 생성
 ```
+
