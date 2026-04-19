@@ -44,6 +44,7 @@ import app.domains.investment.infrastructure.orm.investment_youtube_video_orm  #
 import app.domains.investment.infrastructure.orm.investment_youtube_video_comment_orm  # noqa: F401
 import app.domains.investment.infrastructure.orm.investment_news_content_orm  # noqa: F401
 import app.domains.news.infrastructure.orm.investment_news_orm  # noqa: F401
+import app.domains.dashboard.infrastructure.orm.nasdaq_bar_orm  # noqa: F401
 
 setup_logging()
 configure_langsmith()
@@ -79,6 +80,13 @@ async def lifespan(application: FastAPI):
         await job_collect_news()
     except Exception as e:
         logging.getLogger(__name__).error("News bootstrap failed (server continues normally): %s", str(e))
+
+    from app.infrastructure.scheduler.nasdaq_jobs import job_bootstrap_nasdaq
+
+    try:
+        await job_bootstrap_nasdaq()
+    except Exception as e:
+        logging.getLogger(__name__).error("Nasdaq bootstrap failed (server continues normally): %s", str(e))
 
     from app.infrastructure.scheduler.disclosure_scheduler import create_disclosure_scheduler
 
