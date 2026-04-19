@@ -5,8 +5,6 @@ from app.domains.dashboard.domain.entity.stock_bar import StockBar
 
 # 감지 임계값
 _PRICE_CHANGE_THRESHOLD = 5.0   # ±5% 등락
-_VOLUME_SPIKE_RATIO = 3.0       # 거래량 평균 대비 3배
-_VOLUME_MA_WINDOW = 20          # 거래량 이동평균 기간
 _GAP_THRESHOLD = 2.0            # 갭 상승/하락 2%
 _52W_WINDOW = 252               # 52주 거래일
 
@@ -22,7 +20,6 @@ class PriceEventCollector:
         events: List[PriceEvent] = []
         events.extend(self._detect_52w(bars))
         events.extend(self._detect_price_change(bars))
-        events.extend(self._detect_volume_spike(bars))
         events.extend(self._detect_gap(bars))
 
         events.sort(key=lambda e: e.date)
@@ -79,26 +76,6 @@ class PriceEventCollector:
                     type=PriceEventType.PLUNGE,
                     value=round(change_pct, 2),
                     detail=f"급락 {change_pct:.2f}%",
-                ))
-        return events
-
-    # ── 거래량 3배 이상 ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _detect_volume_spike(bars: List[StockBar]) -> List[PriceEvent]:
-        events: List[PriceEvent] = []
-        for i in range(_VOLUME_MA_WINDOW, len(bars)):
-            avg_volume = sum(b.volume for b in bars[i - _VOLUME_MA_WINDOW:i]) / _VOLUME_MA_WINDOW
-            if avg_volume == 0:
-                continue
-            ratio = bars[i].volume / avg_volume
-
-            if ratio >= _VOLUME_SPIKE_RATIO:
-                events.append(PriceEvent(
-                    date=bars[i].bar_date,
-                    type=PriceEventType.VOLUME_SPIKE,
-                    value=round(ratio, 2),
-                    detail=f"거래량 {ratio:.1f}배 (20일 평균 대비)",
                 ))
         return events
 

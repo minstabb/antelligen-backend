@@ -8,6 +8,9 @@ from app.domains.dashboard.application.port.out.yfinance_corporate_event_port im
     YahooFinanceCorporateEventPort,
 )
 from app.domains.dashboard.domain.entity.corporate_event import CorporateEvent, CorporateEventType
+from app.domains.dashboard.adapter.outbound.external.yahoo_finance_stock_client import (
+    _to_yfinance_ticker,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ class YahooFinanceCorporateEventClient(YahooFinanceCorporateEventPort):
 
     def _fetch_sync(self, ticker: str) -> List[CorporateEvent]:
         logger.info("[YahooFinanceCorporateEvent] %s 이벤트 수집 시작", ticker)
-        t = yf.Ticker(ticker)
+        t = yf.Ticker(_to_yfinance_ticker(ticker))
         events: List[CorporateEvent] = []
 
         events.extend(self._parse_dividends(t))

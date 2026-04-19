@@ -13,6 +13,31 @@ from app.domains.dashboard.domain.exception.stock_exception import (
 
 logger = logging.getLogger(__name__)
 
+_INDEX_TICKER_MAP = {
+    "IXIC": "^IXIC",
+    "DJI": "^DJI",
+    "INDU": "^DJI",
+    "GSPC": "^GSPC",
+    "SPX": "^GSPC",
+    "RUT": "^RUT",
+    "VIX": "^VIX",
+    "FTSE": "^FTSE",
+    "N225": "^N225",
+    "HSI": "^HSI",
+    "GDAXI": "^GDAXI",
+    "KS11": "^KS11",
+    "KQ11": "^KQ11",
+    "KS200": "^KS200",
+    "SSEC": "000001.SS",
+    "TNX": "^TNX",
+}
+
+
+def _to_yfinance_ticker(ticker: str) -> str:
+    if ticker.startswith("^"):
+        return ticker
+    return _INDEX_TICKER_MAP.get(ticker, ticker)
+
 
 class YahooFinanceStockClient(StockBarsPort):
 
@@ -29,7 +54,8 @@ class YahooFinanceStockClient(StockBarsPort):
 
     def _fetch_sync(self, ticker: str, period: str) -> tuple[str, object]:
         logger.info("[YahooFinanceStock] %s 데이터 수집 시작 (period=%s)", ticker, period)
-        t = yf.Ticker(ticker)
+        yf_ticker = _to_yfinance_ticker(ticker)
+        t = yf.Ticker(yf_ticker)
         df = t.history(period=period, interval="1d")
         if df is None or df.empty:
             raise InvalidTickerException(ticker)

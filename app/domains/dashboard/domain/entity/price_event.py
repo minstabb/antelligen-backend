@@ -8,7 +8,6 @@ class PriceEventType(str, Enum):
     LOW_52W = "LOW_52W"          # 52주 신저가
     SURGE = "SURGE"              # +5% 이상 급등
     PLUNGE = "PLUNGE"            # -5% 이상 급락
-    VOLUME_SPIKE = "VOLUME_SPIKE"  # 거래량 3배 이상
     GAP_UP = "GAP_UP"            # 갭 상승
     GAP_DOWN = "GAP_DOWN"        # 갭 하락
 

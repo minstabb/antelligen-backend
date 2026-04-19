@@ -113,32 +113,6 @@ class TestDetectPriceChange:
         assert abs(surge.value - 10.0) < 0.01
 
 
-# ── 거래량 3배 이상 ───────────────────────────────────────────────────────────
-
-class TestDetectVolumeSpike:
-    def test_volume_spike_detected(self):
-        bars = flat_bars(20, volume=1_000_000)
-        bars.append(make_bar(days_ago=0, close=100.0, volume=4_000_000))  # 4배
-
-        events = PriceEventCollector().collect(bars)
-        assert any(e.type == PriceEventType.VOLUME_SPIKE for e in events)
-
-    def test_no_volume_spike_below_threshold(self):
-        bars = flat_bars(20, volume=1_000_000)
-        bars.append(make_bar(days_ago=0, close=100.0, volume=2_500_000))  # 2.5배 → 미만
-
-        events = PriceEventCollector().collect(bars)
-        assert all(e.type != PriceEventType.VOLUME_SPIKE for e in events)
-
-    def test_volume_spike_value_is_ratio(self):
-        bars = flat_bars(20, volume=1_000_000)
-        bars.append(make_bar(days_ago=0, close=100.0, volume=5_000_000))  # 5배
-
-        events = PriceEventCollector().collect(bars)
-        spike = next(e for e in events if e.type == PriceEventType.VOLUME_SPIKE)
-        assert abs(spike.value - 5.0) < 0.1
-
-
 # ── 갭 상승 / 하락 ────────────────────────────────────────────────────────────
 
 class TestDetectGap:
@@ -196,4 +170,3 @@ class TestCollectIntegration:
 
         assert PriceEventType.SURGE in event_types
         assert PriceEventType.GAP_UP in event_types
-        assert PriceEventType.VOLUME_SPIKE in event_types
