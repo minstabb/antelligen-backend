@@ -44,6 +44,8 @@ import app.domains.investment.infrastructure.orm.investment_youtube_video_orm  #
 import app.domains.investment.infrastructure.orm.investment_youtube_video_comment_orm  # noqa: F401
 import app.domains.investment.infrastructure.orm.investment_news_content_orm  # noqa: F401
 import app.domains.news.infrastructure.orm.investment_news_orm  # noqa: F401
+import app.domains.dashboard.infrastructure.orm.nasdaq_bar_orm  # noqa: F401
+import app.domains.history_agent.infrastructure.orm.event_enrichment_orm  # noqa: F401
 
 setup_logging()
 configure_langsmith()
@@ -79,6 +81,13 @@ async def lifespan(application: FastAPI):
         await job_collect_news()
     except Exception as e:
         logging.getLogger(__name__).error("News bootstrap failed (server continues normally): %s", str(e))
+
+    from app.infrastructure.scheduler.nasdaq_jobs import job_bootstrap_nasdaq
+
+    try:
+        await job_bootstrap_nasdaq()
+    except Exception as e:
+        logging.getLogger(__name__).error("Nasdaq bootstrap failed (server continues normally): %s", str(e))
 
     # 거시 경제 리스크 스냅샷 최초 로딩 (이후 매일 새벽 1시에 스케줄러가 갱신)
     from app.infrastructure.scheduler.macro_jobs import job_refresh_market_risk

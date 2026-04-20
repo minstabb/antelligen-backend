@@ -9,6 +9,7 @@ from alembic import context
 
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.database import Base
+import app.domains.history_agent.infrastructure.orm.event_enrichment_orm  # noqa: F401
 
 # Alembic Config 객체
 config = context.config

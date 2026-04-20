@@ -60,6 +60,10 @@ class Settings(BaseSettings):
 
     dart_api_key: str = ""
 
+    fred_api_key: str = ""
+
+    finnhub_api_key: str = ""
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
