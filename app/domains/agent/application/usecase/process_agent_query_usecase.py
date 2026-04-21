@@ -21,6 +21,8 @@ from app.domains.agent.application.response.integrated_analysis_response import 
 from app.domains.agent.application.response.investment_signal_response import InvestmentSignal
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
 from app.domains.agent.domain.entity.agent_query import AgentQuery, QueryOptions, UserProfile
+from app.domains.agent.domain.value_object.source_tier import SourceTier, default_multiplier
+from app.infrastructure.config.settings import get_settings
 
 DEFAULT_TICKER = "005930"
 
@@ -119,6 +121,15 @@ class ProcessAgentQueryUseCase:
 
     @staticmethod
     def _aggregate_signals(results: list[SubAgentResponse]) -> tuple[str, float]:
+        settings = get_settings()
+        use_tier = settings.enable_source_tier_weighting
+
+        _AGENT_DEFAULT_TIER = {
+            "news": SourceTier.MEDIUM,
+            "disclosure": SourceTier.HIGH,
+            "finance": SourceTier.HIGH,
+        }
+
         weighted_score = 0.0
         confidence_total = 0.0
         count = 0
@@ -126,8 +137,13 @@ class ProcessAgentQueryUseCase:
         for r in results:
             if r.is_success() and r.signal is not None and r.confidence is not None:
                 score = _SIGNAL_SCORE.get(r.signal, 0.0)
-                weighted_score += score * r.confidence
-                confidence_total += r.confidence
+                confidence = r.confidence
+                if use_tier:
+                    tier = r.source_tier or _AGENT_DEFAULT_TIER.get(r.agent_name, SourceTier.MEDIUM)
+                    multiplier = default_multiplier(tier)
+                    confidence = confidence * multiplier
+                weighted_score += score * confidence
+                confidence_total += confidence
                 count += 1
 
         if count == 0:

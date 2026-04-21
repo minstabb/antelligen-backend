@@ -7,6 +7,7 @@ from app.domains.agent.application.response.investment_signal_response import (
     InvestmentSignal,
     InvestmentSignalResponse,
 )
+from app.domains.agent.domain.value_object.source_tier import SourceTier
 
 
 class AgentStatus(str, Enum):
@@ -25,6 +26,7 @@ class SubAgentResponse(BaseModel):
     confidence: Optional[float] = None
     summary: Optional[str] = None
     key_points: Optional[list[str]] = None
+    source_tier: Optional[SourceTier] = None
 
     @field_validator("agent_name")
     @classmethod

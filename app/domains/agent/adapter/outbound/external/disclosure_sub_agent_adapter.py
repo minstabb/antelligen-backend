@@ -6,6 +6,7 @@ from app.domains.agent.application.response.investment_signal_response import (
     InvestmentSignalResponse,
 )
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
+from app.domains.agent.domain.value_object.source_tier import SourceTier
 from app.domains.disclosure.application.service.disclosure_analysis_service import (
     DisclosureAnalysisService,
 )
@@ -50,4 +51,6 @@ class DisclosureSubAgentAdapter(DisclosureAgentPort):
             summary=result.summary or "",
             key_points=result.key_points or ["분석 결과 없음"],
         )
-        return SubAgentResponse.success_with_signal(signal_response, result.data, elapsed)
+        return SubAgentResponse.success_with_signal(
+            signal_response, result.data, elapsed
+        ).model_copy(update={"source_tier": SourceTier.HIGH})

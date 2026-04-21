@@ -64,6 +64,17 @@ class Settings(BaseSettings):
 
     finnhub_api_key: str = ""
 
+    # US market support
+    enable_us_tickers: bool = False
+    sec_edgar_user_agent: str = "Antelligen research@example.com"
+
+    # Source tier weighting
+    enable_source_tier_weighting: bool = False
+    tier_multiplier_high: float = 1.0
+    tier_multiplier_medium: float = 0.7
+    tier_multiplier_medium_low: float = 0.5
+    tier_multiplier_low: float = 0.3
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

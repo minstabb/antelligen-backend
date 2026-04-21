@@ -3,18 +3,7 @@ import time
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
 from app.domains.news.application.port.collected_news_repository_port import CollectedNewsRepositoryPort
 from app.domains.news.application.port.news_signal_analysis_port import NewsSignalAnalysisPort
-
-# 종목코드 → 수집 키워드 매핑 (CollectNaverNewsUseCase의 COLLECTION_KEYWORDS 기준)
-TICKER_TO_KEYWORDS: dict[str, list[str]] = {
-    "005930": ["삼성전자"],
-    "000660": ["SK하이닉스"],
-    "005380": ["현대차"],
-    "035420": ["네이버"],
-    "035720": ["카카오"],
-    "068270": ["셀트리온"],
-    "207940": ["삼성바이오로직스"],
-    "005490": ["포스코"],
-}
+from app.domains.news.application.port.ticker_keyword_resolver_port import TickerKeywordResolverPort
 
 
 class AnalyzeNewsSignalUseCase:
@@ -22,13 +11,15 @@ class AnalyzeNewsSignalUseCase:
         self,
         repository: CollectedNewsRepositoryPort,
         analysis_port: NewsSignalAnalysisPort,
+        keyword_resolver: TickerKeywordResolverPort,
     ):
         self._repository = repository
         self._analysis_port = analysis_port
+        self._keyword_resolver = keyword_resolver
 
     async def execute(self, ticker: str) -> SubAgentResponse:
         start_ms = int(time.time() * 1000)
-        keywords = TICKER_TO_KEYWORDS.get(ticker, [])
+        keywords = await self._keyword_resolver.resolve(ticker)
 
         all_articles = []
         for keyword in keywords:
@@ -49,4 +40,7 @@ class AnalyzeNewsSignalUseCase:
             return SubAgentResponse.error("news", "뉴스 감성 분석 중 오류가 발생했습니다.", elapsed_ms)
 
         elapsed_ms = int(time.time() * 1000) - start_ms
-        return SubAgentResponse.success_with_signal(signal, {"ticker": ticker}, elapsed_ms)
+        article_urls = [a.url for a in all_articles if getattr(a, "url", None)]
+        return SubAgentResponse.success_with_signal(
+            signal, {"ticker": ticker, "article_urls": article_urls}, elapsed_ms
+        )
