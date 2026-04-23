@@ -555,3 +555,223 @@ curated 카탈로그(CRISIS 리먼/COVID, FLASH_CRASH, DOWNGRADE) + FRED indicat
 | 13 | S4-3 관찰성 로그 | 구조화 로그 `extra=` 확인 | ✅ 추가됨 |
 
 **Top 10 모든 항목 실런타임 또는 유닛 테스트로 검증 완료.**
+
+---
+
+## 17. 풀 오딧 (Full Audit) — 2026-04-22 심야 세션
+
+### 17.1 범위·방법
+
+- **의도**: `/Users/gimmingyu/.claude/plans/http-localhost-3000-dashboard-enchanted-goblet.md` 의 풀 오딧 계획 실행. 검사만 + 리포트(픽스 제외).
+- **브랜치**: backend `feature/period-as-candle-interval` @ `688b7c5`(dirty), frontend `feature/event-click-preserve-interval` @ `f83c75b`(clean).
+- **실행 축**: A 응답 품질 · B 성능 · C 안정성 · D UI/UX · E 코드 품질 · F 관찰성 · G 시드/설정.
+- **도구**: `smoke_history_timeline.py`(15 케이스), ruff 0.15.11, mypy 1.20.2, eslint 9, tsc 5.9.3, 수동 curl 샘플링, 로그 grep 7일분.
+- **외부 API**: 실호출 허용 (OpenAI/yfinance/FRED/DART/SEC/Finnhub/GDELT).
+- **baseline**: `tests/quality/matrix.baseline_17.json` — §16 재스모크 직후 상태(= `matrix.pre_17.json`과 동일).
+
+### 17.2 축별 결과
+
+| 축 | §16 | §17 | 요지 |
+|----|-----|-----|------|
+| A. 응답 품질 | ● | ○ | EQUITY 1Y 3종 모두 CORPORATE·ANNOUNCEMENT 카테고리 소실. 회귀 확정. |
+| B. 성능 | ◐ | ● | MACRO cold 0.53~1.37s (fresh compute 기준) — §16 180s timeout 해소 유지. EQUITY cold 16~73s(개선 없음). warm 전부 ≤9ms. |
+| C. 안정성 | ◐ | ○ | SEC 429가 2026-04-21 549건, 2026-04-22 329건 — 동일 초 내 병렬 버스트. 계획 합격 기준 "429 재시도 0건" 명백 위반. |
+| D. UI/UX | — | △ | 정적 분석만 수행. 실제 브라우저 E2E는 Claude Code 범위 밖 — 사용자 수동 실행 필요(17.7 참조). |
+| E. 코드 품질 | ○ | ○ | 신규 측정치: ruff 57, mypy (history_agent) 12+internal error, eslint 9(5 error), tsc 1 error(iCloud sync artifact). |
+| F. 관찰성 | ◐ | ○ | `llm_op=` 구조화 로그가 실제 파일에 **0건** — Formatter에 필드 미노출(extra 기록되어도 텍스트에 안 찍힘). |
+| G. 시드/설정 | ● | ◐ | 시드 22건 정상 22건 중 **9건에 `source_url` 누락**. docker-compose에 MySQL(`db`) 레거시 잔존. `.env` 평문 시크릿 11개. |
+
+### 17.3 신규 결함
+
+결함 ID는 §3 규칙을 따름 (S1 Critical, S2 Major, S3 Minor, S4 구조/관찰성).
+
+#### S1-4 `1Q` chart_interval이 CORPORATE/ANNOUNCEMENT 어댑터로 전파되지 않음 — **회귀, Critical**
+
+- **재현**: `curl "http://localhost:33333/api/v1/history-agent/timeline?ticker=AAPL&period=1Y&enrich_titles=false"` → `count=10`, events=NEWS 10건만.
+- **수동 chart_interval 비교(AAPL)**:
+  - `1D` → 25 events (NEWS 10, ANNOUNCEMENT 11, CORPORATE 4) ✓
+  - `1W` → 49 events (NEWS 10, ANNOUNCEMENT 27, CORPORATE 12) ✓
+  - `1M` → 72 events (NEWS 10, ANNOUNCEMENT 42, CORPORATE 20) ✓
+  - `1Q` → **10 events (NEWS 10만)** ❌
+- **로그 증거**(`logs/20260422-app.log`):
+  ```
+  23:52:43 [INFO] [HistoryAgent] 완료: ticker=AAPL, period=1Q, total=10
+  23:52:18 [WARNING] [HistoryAgent]   └ 기업 이벤트 수집 실패: '1Q'
+  23:52:18 [WARNING] [HistoryAgent]   └ 공시 수집 실패: '1Q'
+  ```
+- **근본 원인**:
+  - `app/domains/dashboard/application/usecase/get_corporate_events_usecase.py:21-26` — `_PERIOD_TO_DAYS = {"1D", "1W", "1M", "1Y"}` — **`1Q` 키 없음**.
+  - `app/domains/dashboard/application/usecase/get_announcements_usecase.py:21-26` — 동일 구조.
+  - `app/domains/history_agent/application/usecase/history_agent_usecase.py:750-751` 에서 `period=period` 로 전달된 `"1Q"` → dict 조회 → `KeyError`.
+  - 상위 `asyncio.gather(..., return_exceptions=True)`가 예외를 결과 리스트로 흡수 → `isinstance(x, CorporateEventsResponse)` 분기 실패 → 빈 카테고리.
+- **영향**: 프론트 `/dashboard`에서 `PeriodTabs` `1Y` 클릭 시(내부 alias `1Y→1Q`) **EQUITY 전 종목에 대해 NEWS 10건만 노출**. AAPL 256→10(-246), NVDA 209→11(-198), 005930 150→10(-140).
+- **관련 follow-up**: `project_antelligen_period_redesign.md` §13.2·§13.8. 본 회귀는 §13.2의 전파 누락.
+- **수정 제안(별도 PR)**: 두 유스케이스의 `_PERIOD_TO_DAYS`에 `"1Q": 365*20` 추가 또는 라우터에서 `1Q`를 usecase 호출 전 `1Y`로 역매핑.
+
+#### S1-5 SEC EDGAR 병렬 요청 throttle 부재 — Critical
+
+- **증거**(`logs/20260422-app.log`, 19:43:29):
+  동일 초 내 GOOG/AMZN CIK 하위 URL에 대해 `429 Too Many Requests` 응답 **수십 건** 연달아 관측.
+- **수치**:
+  - 2026-04-21: 429 응답 549건
+  - 2026-04-22: 429 응답 329건
+  - 2026-04-19: 98건 / 2026-04-20: 46건
+- **근본 원인 추정**: `sec_edgar_announcement_client.py`의 8-K detail fetch 경로가 `asyncio.gather()` 또는 유사 병렬로 수십 URL 동시 요청. tickers.json single-flight 캐시와 60s backoff는 구현돼 있으나, detail HTML fetch 경로에는 동시성 제한(semaphore)·SEC rate limit(10 req/s) 준수가 없음.
+- **영향**: SEC 응답 지연/부분 실패. 실 사용자 요청이 몰리면 SEC가 IP 레벨로 차단할 수 있음.
+- **수정 제안(별도 PR)**: `asyncio.Semaphore(8)` 감싸기 + 요청 간 0.11s sleep (SEC 10 req/s 정책 준수).
+
+#### S2-6 SEC EDGAR CIK 조회 필터 누락(non-US 티커) — Major
+
+- **증거** (`logs/2026*-app.log` 전체):
+  ```
+   17 건 ticker=IXIC  (4-19)
+   14 건 ticker=IXIC  (4-20)
+    2 건 ticker=005930.KS (4-21)
+    3 건 ticker=005930.KS (4-22)
+    1 건 ticker=QQQM
+    1 건 ticker=APPL (오타)
+  ```
+- **근본 원인**: SEC는 미국 상장 개별 종목만 CIK를 보유. 지수(`^IXIC`, `^GSPC`), KR 티커(`005930.KS`), 일부 ETF에 대해서도 무조건 CIK 조회 시도.
+- **영향**: 불필요한 네트워크·WARN 로그 노이즈, SEC rate limit 소모.
+- **수정 제안(별도 PR)**: `sec_edgar_announcement_client.fetch()` 진입부에 `^`로 시작하는 티커·`.KS`/`.KQ` 접미사·ETF tickers.json 미등재 시 조기 반환.
+
+#### S2-7 ETF 하위 공시 dedupe 후 잔여 동일-일자 제목 중복 — Minor
+
+- **증거** (`matrix.json` §17):
+  - `SPY_1M`: `same_date_title_dup_count=2`
+  - `QQQ_1M`: `same_date_title_dup_count=2`
+- **설명**: ETF는 보유종목별 공시를 decompose 수집. Top 10 의 S2-5 Step 2 `_dedupe_announcements` 는 동일 ticker 범위 내 dedupe. **서로 다른 constituent에서 온 동일 제목 공시는 유지됨.** decompose 결과 병합 후 dedupe 필요.
+
+#### S2-8 `historic_macro_events.json` 시드 9건에 `source_url` 누락 — Minor
+
+- **위치**: `app/domains/history_agent/infrastructure/seed/historic_macro_events.json`
+- **누락 항목** (22건 중 9건):
+  - 2011-08-09 코스피 동조 폭락
+  - 2018-02-05 VIXmageddon
+  - 2018-07-06 美·中 1차 관세 발효
+  - 2020-03-18 코스피 공매도 금지 시행
+  - 2022-09-28 레고랜드 ABCP 디폴트
+  - 2023-10-07 이스라엘·하마스 전쟁 개시
+  - 2024-08-05 엔 캐리 청산 쇼크
+  - 2024-12-03 계엄령 선포·해제 쇼크
+  - 2025-04-02 트럼프 상호관세 발표
+- **영향**: 프론트 "출처" 링크가 빈 문자열/누락. 큐레이션 검증 추적 곤란.
+
+#### S3-3 FRED 업스트림 500 9건(4-22) — Low, 외부 장애
+
+- **증거**: `logs/20260422-app.log` 4-22 23:00 부근 `FRED API HTTP 오류 (series=FEDFUNDS): 500` 등 9건.
+- **설명**: graceful degradation으로 처리(WARN 로그만). 복구 후 재호출 시 정상. 서비스 영향 없음.
+
+#### S4-4 `llm_op=` 구조화 로그가 로그 파일에 실제로 기록되지 않음 — 관찰성 구조적 결함
+
+- **증거**: `logs/2026*-app.log` 7일분 `grep -oE 'llm_op=[a-z_]+'` → **0건**.
+- **원인**: `title_generation_service.py:257/272`, `macro_importance_ranker.py:176/224` 에서 `logger.info(..., extra={"llm_op": ...})` 로 기록하지만, `logging` 기본 Formatter는 `extra`를 포함하지 않음. Formatter 문자열에 `%(llm_op)s`·`%(batch)s`·`%(elapsed_ms)s` 등 필드가 명시되지 않으면 파일에 누락.
+- **영향**: §16.9의 "S4-3 ✅ 추가됨" 판정이 **코드 존재만 의미**. 실 운영 관찰성은 0. Prometheus 전에 logging Formatter 먼저 수정해야 함.
+
+#### S4-5 프론트엔드 구조적 결함(회귀 아님, §18 연장) — 구조
+
+1. **에러 바운더리 부재**: `app/dashboard/error.tsx` 없음. `features/` 내 `ErrorBoundary` 사용 0건. 존재하지 않는 티커(`ZZZZ`) 입력 시 흰 화면 위험.
+2. **테스트 프레임워크 부재**: `*.test.ts`/`*.spec.ts` 프로젝트 내 0건. Vitest/Jest/Playwright 미설치.
+3. **Prettier 미설치**: devDependencies 부재.
+4. **`tsc --noEmit` 스크립트 부재**: `package.json` scripts에 없음 — 빌드 시에만 타입 체크.
+5. **`.next/types/routes.d 2.ts`**: macOS iCloud/sync duplicate 파일(퍼미션 `-rw-------`)이 커밋 가능 상태. `LayoutProps` duplicate로 `tsc --noEmit` 실패. (tsc 관측된 단일 에러의 원인)
+6. **`useLazyTitles.ts:35-37` 리액트 refs 규칙 위반**: `eventsRef.current = events` 등 렌더 중 ref 업데이트 3건. React 19 `react-hooks/refs` 오류. 렌더 타이밍 이슈 잠재.
+
+### 17.4 회귀 감지
+
+§16 재스모크(baseline) 대비 변화 요약 (events count 차분 `Δn`):
+
+| Label | baseline n | §17 n | Δn | 해석 |
+|-------|-----------:|------:|---:|------|
+| AAPL_1M  | 151 |  72 |  -79 | PRICE 철거 정상 효과(회귀 아님) |
+| AAPL_1Y  | 256 |  10 | **-246** | **회귀 S1-4** |
+| NVDA_1Y  | 209 |  11 | **-198** | **회귀 S1-4** |
+| 005930_1M| 109 |  29 |  -80 | PRICE 철거 정상 효과 |
+| 005930_1Y| 150 |  10 | **-140** | **회귀 S1-4** |
+| IXIC_1M  |  89 |  40 |  -49 | PRICE 철거(INDEX는 CORPORATE 없음, 정상) |
+| IXIC_1Y  | 120 |  40 |  -80 | 동상 |
+| GSPC_1Y  | 103 |  40 |  -63 | 동상 |
+| KS11_1Y  | 120 |  40 |  -80 | 동상 |
+| SPY_1M   | 357 | 333 |  -24 | PRICE 일부 제거(정상) |
+| QQQ_1M   | 386 | 345 |  -41 | 동상 |
+| MACRO_*  |  30 |  30 |   +0 | 변화 없음 |
+
+**회귀 1종(S1-4)**. 영향 범위: EQUITY 1Y 탭 전종목.
+
+### 17.5 Follow-up 우선순위 재조정
+
+기존 `project_antelligen_followups.md` 대비 갱신.
+
+| 기존 우선순위 | 신규 우선순위 | 항목 | 사유 |
+|---|---|---|---|
+| 신규 | **P0** | **S1-4 `1Q` KeyError 전파** | 이번 세션 발견 Critical 회귀 |
+| Medium | **P0** | S1-5 SEC 429 병렬 throttle | 계획 합격 기준 위반, 이미 879건(4-21,22) 관측 |
+| — | **P1** | S2-6 SEC CIK non-US 필터 | 매일 수십건 불필요 조회 |
+| — | **P1** | S4-4 Formatter extra 필드 노출 | §16 "S4-3 Partial"이 실제 0건이어서 재표기 |
+| **§13.2 근본 버그** | **P0 통합** | chart_interval 전파 일관성 | S1-4·S1-5·S2-6 동시 해결이 효율적 |
+| §13.4 B/C/D | Medium 유지 | 이벤트 수집 스케일 정렬, 이상치 봉 마커, causality tool | §13.2 선행 후 재조정 |
+| `.KQ` 코스닥 폴백 | Medium 유지 | 코스닥 종목 미지원 | — |
+| KR CPI 시리즈 ID 교체 | Medium 유지 | sanity filter로 독성값만 차단 중 | — |
+| Prometheus exporter | Medium 유지 | S4-4 Formatter 먼저 | — |
+| — | Low 신규 | S2-7 ETF decompose dedupe | SPY/QQQ 중복 2건 |
+| — | Low 신규 | S2-8 시드 source_url 9건 누락 | 데이터 품질 |
+| — | Low 신규 | S4-5 프론트엔드 구조 6개 항목 | ErrorBoundary/Test/Prettier 등 |
+
+### 17.6 증거 인덱스
+
+- 자동 매트릭스: `tests/quality/matrix.json` (§17, 2026-04-22 심야)
+- Baseline 스냅샷: `tests/quality/matrix.baseline_17.json` (§16 직후)
+- 샘플 응답: `tests/quality/samples/*.json` (§17 smoke로 전면 갱신)
+- 로그 스캔: `logs/20260422-app.log`(4479줄), 7일분(`20260415~22-app.log`)
+- 정적 분석:
+  - 백엔드 ruff: 57 errors (F401×22, F541×19, E402×11, E741×4, F841×1; 41 auto-fixable)
+  - 백엔드 mypy(history_agent only): 12 errors in 3 files + 1 internal error (`collect_non_economic_node.py:66`)
+  - 프론트 eslint: 9 problems(5 error) — `features/history/application/useLazyTitles.ts:35-37`
+  - 프론트 tsc: 1 error(`.next/types/routes.d 2.ts:69:8` duplicate `LayoutProps`)
+- 시드 검증: `historic_macro_events.json` 22건, 9건 `source_url` 누락, 중복 0, 날짜 0 오류
+- 성능:
+  - EQUITY cold: 16~73s
+  - INDEX cold: 23~73s
+  - ETF cold: 44~60s
+  - MACRO cold: 0.53~1.37s (§16 180s timeout 해소 유지)
+  - warm: 0.002~0.009s
+
+### 17.7 계획 합격 기준 상태
+
+계획 §합격 기준 대비:
+
+| # | 기준 | 상태 |
+|---|------|------|
+| 1 | 7개 축 A~G 수치·관찰 기록 | ✅ §17.2 |
+| 2 | 5개 follow-up 체크리스트 마킹 | 재스모크 ✅ / Redis 초기화 ✅ / 워밍업 ✅(9 MACRO 200 OK) / 로그 grep ✅ / **브라우저 E2E ❌ 범위밖** |
+| 3 | 결함 severity+파일+재현 | ✅ S1-4/S1-5/S2-6~8/S3-3/S4-4/S4-5 |
+| 4 | 프론트 구조 결함 분리 | ✅ S4-5 |
+| 5 | follow-up 우선순위 판정 | ✅ §17.5 |
+
+**브라우저 E2E 미수행 사유**: Claude Code 환경에 Playwright/브라우저 자동화 툴 부재. D-1~D-10 10개 시나리오는 사용자 수동 실행 필요. 대체로 정적 소스 검증(`TimelineEventCard.tsx:33-41`의 `border-violet-400` 로직, `CategoryFilterChips.tsx`의 라벨/스타일, `NasdaqChart.tsx:272` `PeriodTabs` 바인딩)은 확인.
+
+### 17.8 사용자 수동 확인 요청 (브라우저 E2E)
+
+`http://localhost:3000/dashboard`에서 다음 10 시나리오 실행 권장. 특히 **D-5 PeriodTabs 1Y 탭**에서 §17.3 S1-4 회귀가 직접 관측될 것으로 예상.
+
+| # | 시나리오 | 예상 |
+|---|---|---|
+| D-1 | 005930 검색 → 타임라인 렌더 | 1M 탭에서 29건 표시(NEWS 10, CORPORATE 19). 1Y 탭은 **S1-4로 NEWS 10건만** |
+| D-2 | ^IXIC MACRO importance ≥ 0.8 보라 테두리 | 30건 MACRO 중 importance 0.7~1.0, ≥0.8은 **17건** 보라 테두리 |
+| D-3 | 카테고리 필터 칩 | 구현 확인(`CategoryFilterChips.tsx:1-67`) |
+| D-4 | NEWS 한국어 요약 | 수동 샘플에서 AAPL NEWS 전부 한국어 확인. 프론트에서도 동일 예상 |
+| D-5 | PeriodTabs 1D/1W/1M/1Y | 1Y에서 S1-4 회귀로 이벤트 급감 |
+| D-6 | useTimeline period ref 우회 | `useTimeline.ts:13-64` ref 기반(변경 시 abort 없음) — 설계상 의도적 |
+| D-7 | SSE 진행률 바 | `HistoryPanel.tsx` LOADING_WITH_PROGRESS 구현 확인 |
+| D-8 | 차트 봉 클릭 → 타임라인 하이라이트 | `ConnectorOverlay.tsx` 렌더 |
+| D-9 | 존재하지 않는 티커 에러 상태 | **ErrorBoundary 없음 — 흰 화면 위험** |
+| D-10 | DevTools 콘솔 에러 | `useLazyTitles.ts:35-37` React 19 refs 경고 가능성 |
+
+### 17.9 요약
+
+- **신규 Critical 회귀**: S1-4(`1Q` 전파 누락) — EQUITY 1Y 탭 사실상 무효화.
+- **재식별된 Critical 이슈**: S1-5(SEC 429 병렬 버스트) — §16에서 follow-up으로 남겼던 것이 879건(4-21+4-22)으로 고조.
+- **구조적 결함 신규**: S4-4(Formatter 누락으로 구조화 로그 실제 0건), S4-5(프론트 ErrorBoundary/Test/Prettier/tsc-script 부재).
+- **유지**: MACRO timeline cold ≤1.4s, pytest 149 passed, PRICE 카테고리 철거 정상 작동.
+- **출력물**: `matrix.json`(갱신), `matrix.baseline_17.json`(보존), 본 §17.
+- **픽스는 별도 PR**(사용자 방침). 우선순위 §17.5 참조.
