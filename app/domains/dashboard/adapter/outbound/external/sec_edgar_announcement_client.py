@@ -64,7 +64,10 @@ _SEC_429_LAST_TS: dict[str, float] = {"ts": 0.0}
 # SEC EDGAR fair-use 정책: 초당 10req. 동시성 5로 제한해 burst 방지.
 # ETF holdings 병렬 fetch(SPY/QQQ 등) 시 ~30종목 × 5문서 = 150 요청이 동시에 발사되며
 # 실측 결과 단일 초에 228건 429 수신됨. 전역 semaphore로 throttle.
+# §17 S1-5: semaphore만으로는 round-trip이 빠를 때 burst 방지 불충분 → 각 요청 직후
+# 최소 대기 간격을 추가. slot당 실효 rate = 1 / _SEC_MIN_INTERVAL ≈ 9 req/s.
 _SEC_CONCURRENCY_LIMIT = 5
+_SEC_MIN_INTERVAL = 0.11
 _sec_semaphore: Optional[asyncio.Semaphore] = None
 
 
@@ -204,6 +207,7 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
                 async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": _USER_AGENT}) as client:
                     async with _get_sec_semaphore():
                         resp = await client.get(_TICKERS_URL)
+                        await asyncio.sleep(_SEC_MIN_INTERVAL)
                 if resp.status_code == 429:
                     _SEC_429_LAST_TS["ts"] = now
                     retry_after = resp.headers.get("Retry-After")
@@ -240,6 +244,7 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
         try:
             async with _get_sec_semaphore():
                 resp = await client.get(url, timeout=_DOC_FETCH_TIMEOUT)
+                await asyncio.sleep(_SEC_MIN_INTERVAL)
             resp.raise_for_status()
             target_item = _primary_item_code(items_str)
             return _extract_item_body(resp.text, target_item)
@@ -260,6 +265,7 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
         ) as client:
             async with _get_sec_semaphore():
                 resp = await client.get(_SUBMISSIONS_URL.format(cik=cik))
+                await asyncio.sleep(_SEC_MIN_INTERVAL)
             resp.raise_for_status()
             data = resp.json()
 
