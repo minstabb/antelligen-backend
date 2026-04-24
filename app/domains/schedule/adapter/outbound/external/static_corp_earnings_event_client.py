@@ -59,7 +59,7 @@ class StaticCorpEarningsEventClient(EconomicEventFetchPort):
             events.append(
                 EconomicEvent(
                     source=SOURCE_NAME,
-                    source_event_id=f"{ticker}-{entry['date_iso']}-{quarter_label}",
+                    source_event_id=f"{ticker}-{event_date.year}-{quarter_label}",
                     title=f"{priority_prefix}{name}({ticker}) {quarter_label} 잠정실적 발표",
                     country="KR",
                     event_at=event_at,

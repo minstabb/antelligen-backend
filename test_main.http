@@ -95,6 +95,34 @@ Content-Type: application/json
   "query": "  "
 }
 
+### 종목 차트 - AAPL 일봉 (1D, 최근 252 거래일)
+GET http://127.0.0.1:33333/api/v1/dashboard/stocks/AAPL/bars?period=1D
+Accept: application/json
+
+### 종목 차트 - TSLA 주봉 (1W, 최근 156 주봉)
+GET http://127.0.0.1:33333/api/v1/dashboard/stocks/TSLA/bars?period=1W
+Accept: application/json
+
+### 종목 차트 - NVDA 월봉 (1M, 최근 60 월봉)
+GET http://127.0.0.1:33333/api/v1/dashboard/stocks/NVDA/bars?period=1M
+Accept: application/json
+
+### 종목 차트 - MSFT 연봉 (1Y, 최근 20 연봉)
+GET http://127.0.0.1:33333/api/v1/dashboard/stocks/MSFT/bars?period=1Y
+Accept: application/json
+
+### 종목 차트 - 소문자 ticker (자동 대문자 정규화 확인)
+GET http://127.0.0.1:33333/api/v1/dashboard/stocks/aapl/bars?period=1D
+Accept: application/json
+
+### 종목 차트 - 존재하지 않는 ticker (404 에러)
+GET http://127.0.0.1:33333/api/v1/dashboard/stocks/INVALIDXYZ/bars?period=1D
+Accept: application/json
+
+### 종목 차트 - 유효하지 않은 period (400 에러)
+GET http://127.0.0.1:33333/api/v1/dashboard/stocks/AAPL/bars?period=3M
+Accept: application/json
+
 ### Stock 조회
 GET http://127.0.0.1:33333/api/v1/stock/005930
 Accept: application/json
@@ -168,3 +196,15 @@ Content-Type: application/json
 {
   "source": "한국경제"
 }
+
+### HistoryAgent Timeline - 미국 종목 (causality 포함)
+GET http://127.0.0.1:33333/api/v1/history-agent/timeline?ticker=AAPL&period=1Y
+Accept: application/json
+
+### HistoryAgent Timeline - 한국 종목 (causality 포함)
+GET http://127.0.0.1:33333/api/v1/history-agent/timeline?ticker=005930&period=1M
+Accept: application/json
+
+### HistoryAgent Timeline - 단기 (1W, causality 적을 가능성 높음)
+GET http://127.0.0.1:33333/api/v1/history-agent/timeline?ticker=NVDA&period=1W
+Accept: application/json

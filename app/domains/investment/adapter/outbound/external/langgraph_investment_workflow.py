@@ -24,7 +24,7 @@ import asyncio
 import time
 import traceback
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional, TypedDict
+from typing import Any, Callable, Optional, TypedDict
 from urllib.parse import parse_qs, urlparse
 
 import json
@@ -33,26 +33,16 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domains.investment.adapter.outbound.external.investment_decision_analyzer import (
+    InvestmentDecisionAnalyzer,
+)
+from app.domains.investment.adapter.outbound.external.investment_signal_analyzer import (
+    InvestmentSignalAnalyzer,
+)
 from app.domains.investment.adapter.outbound.external.investment_source_registry import (
     IMPLEMENTED_SOURCE_KEYS,
 )
 from app.domains.investment.adapter.outbound.external.llm_query_parser import LLMQueryParser
-from app.domains.investment.adapter.outbound.external.youtube_sentiment_analyzer import (
-    YoutubeSentimentAnalyzer,
-)
-from app.domains.investment.adapter.outbound.external.news_signal_analyzer import (
-    NewsSignalAnalyzer,
-)
-from app.domains.investment.adapter.outbound.external.investment_decision_analyzer import (
-    InvestmentDecisionAnalyzer,
-)
-from app.domains.investment.domain.value_object.youtube_sentiment_metrics import (
-    empty_youtube_sentiment,
-    empty_news_signal,
-)
-from app.domains.investment.domain.value_object.investment_decision import (
-    conservative_fallback,
-)
 from app.domains.investment.adapter.outbound.persistence.investment_youtube_repository import (
     InvestmentYoutubeRepository,
 )
@@ -65,12 +55,12 @@ from app.domains.news.adapter.outbound.persistence.investment_news_repository im
 
 MAX_ITERATIONS = 10
 
-# Retrieval 단계에서 단일 소스 핸들러에 적용하는 최대 실행 시간 (초)
-_RETRIEVAL_TIMEOUT_SECONDS: int = 30
-
 # 영상당 최대 수집 댓글 수 / 댓글을 수집할 최대 영상 수
 _MAX_COMMENTS_PER_VIDEO = 5
 _MAX_VIDEOS_FOR_COMMENTS = 3
+
+# 소스별 최대 실행 시간 (초) — 초과 시 해당 소스만 실패로 처리
+RETRIEVAL_TIMEOUT_SECS = 30
 
 
 # ──────────────────────────────────────────────
@@ -91,6 +81,7 @@ class InvestmentAgentState(TypedDict, total=False):
 
     # 각 에이전트 결과
     retrieved_data: list[dict[str, Any]]   # Retrieval Agent 결과
+    investment_decision: dict[str, Any]    # Rule 기반 투자 판단 (buy/hold/sell)
     analysis_insights: dict[str, Any]      # Analysis Agent 결과
     final_response: str                    # Synthesis Agent 최종 응답
 
@@ -143,9 +134,21 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         self._youtube_comment_client = YoutubeCommentClient(api_key=youtube_api_key) if youtube_api_key else None
         self._db_session = db_session
         self._llm = ChatOpenAI(api_key=api_key, model=query_parser_model, temperature=0.3)
-        self._youtube_sentiment_analyzer = YoutubeSentimentAnalyzer(llm=self._llm)
-        self._news_signal_analyzer = NewsSignalAnalyzer(llm=self._llm)
-        self._investment_decision_analyzer = InvestmentDecisionAnalyzer(llm=self._llm)
+
+        # 소스 핸들러 레지스트리: required_data 키 → async callable(company: str) → list[dict]
+        # 새 소스 추가 시 이 dict에만 등록하면 병렬 실행 프레임워크가 자동 적용된다.
+        self._source_handlers: dict[str, Callable] = {
+            "뉴스": self._fetch_news,
+            "유튜브": self._fetch_youtube,
+            # 확장 포인트: "종목": self._fetch_stock,
+        }
+
+        # 투자 심리 지표 산출기 (유튜브 댓글 감성·키워드 / 뉴스 이벤트 분류)
+        self._signal_analyzer = InvestmentSignalAnalyzer(api_key=api_key)
+
+        # 투자 판단 산출기 (deterministic rule + LLM rationale)
+        self._decision_analyzer = InvestmentDecisionAnalyzer(api_key=api_key)
+
         self._graph = self._build_graph()
         print(
             f"[LangGraphInvestmentWorkflow] 그래프 빌드 완료 | max_iterations={max_iterations} | "
@@ -266,69 +269,15 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         updates["next_agent"] = next_agent
         return updates
 
-    # ── 소스 핸들러 레지스트리 ────────────────────────────────────────────────
-    # SOURCE_REGISTRY 에 등록된 키와 1:1 대응한다.
-    # 새 소스를 추가할 때 이 dict 에만 항목을 추가하면 병렬 실행에 자동 편입된다.
-    # handler signature: Callable[[Optional[str]], Awaitable[list[dict]]]
-
-    @property
-    def _source_handlers(self) -> dict[str, Callable[[Optional[str]], Awaitable[list[dict[str, Any]]]]]:
-        return {
-            "뉴스": self._fetch_news,
-            "유튜브": self._fetch_youtube,
-            # 확장 포인트: 새 소스는 여기에만 추가
-            # "종목": self._fetch_stock,
-        }
-
-    async def _run_source_with_timeout(
-        self,
-        source_name: str,
-        company: str,
-    ) -> tuple[str, list[dict[str, Any]] | Exception]:
-        """
-        단일 소스 핸들러를 타임아웃을 걸고 실행한다.
-
-        - 성공: (source_name, list) 반환
-        - 예외/타임아웃: (source_name, Exception) 반환 — 호출자가 부분 실패 처리
-        """
-        handler = self._source_handlers.get(source_name)
-        if handler is None:
-            print(f"[Retrieval][{source_name}] 핸들러 미등록 — 실패 처리")
-            return source_name, RuntimeError(f"핸들러 없음: {source_name}")
-
-        start = time.monotonic()
-        print(f"[Retrieval][{source_name}] 수집 시작")
-        try:
-            result = await asyncio.wait_for(
-                handler(company),
-                timeout=_RETRIEVAL_TIMEOUT_SECONDS,
-            )
-            elapsed = time.monotonic() - start
-            print(f"[Retrieval][{source_name}] 수집 완료 | {elapsed:.2f}s | 항목 수: {len(result)}")
-            return source_name, result
-        except asyncio.TimeoutError:
-            elapsed = time.monotonic() - start
-            print(
-                f"[Retrieval][{source_name}] 타임아웃 ({elapsed:.2f}s > {_RETRIEVAL_TIMEOUT_SECONDS}s) "
-                f"— 해당 소스만 실패 처리"
-            )
-            return source_name, TimeoutError(
-                f"{source_name} 수집 타임아웃 ({_RETRIEVAL_TIMEOUT_SECONDS}s 초과)"
-            )
-        except Exception as exc:
-            elapsed = time.monotonic() - start
-            print(f"[Retrieval][{source_name}] 예외 ({elapsed:.2f}s): {exc!r} — 해당 소스만 실패 처리")
-            traceback.print_exc()
-            return source_name, exc
-
     async def _retrieval_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
         """
-        required_data 에 명시된 소스를 SOURCE_REGISTRY 핸들러 레지스트리에서 찾아
-        모두 동시에 실행하고 결과를 required_data 순서대로 State에 적재한다.
+        required_data 배열을 읽어 _source_handlers 레지스트리에서 핸들러를 조회하고,
+        모든 소스를 병렬로 동시 실행하여 수집 결과를 State에 적재한다.
 
-        - 모든 핸들러는 asyncio.wait_for로 감싸 개별 타임아웃이 적용된다.
-        - 한 핸들러의 예외·타임아웃이 다른 핸들러를 중단시키지 않는다 (부분 실패 허용).
-        - 미구현 소스(SOURCE_REGISTRY에 없는 키)는 조용히 무시한다.
+        - 새 소스 추가: _source_handlers 에만 등록하면 자동으로 병렬 실행된다.
+        - 각 핸들러에 RETRIEVAL_TIMEOUT_SECS 타임아웃이 적용된다.
+        - 부분 실패 허용: 특정 소스 실패·타임아웃이 다른 소스 실행을 중단하지 않는다.
+        - required_data 순서대로 retrieved_data가 조립된다.
         """
         parsed: ParsedQuery = state.get("parsed_query") or {}
         company = parsed.get("company") or "전체 시장"
@@ -337,39 +286,66 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
 
         print(f"\n[Retrieval] 데이터 수집 시작 | company={company!r} | required_data={required_data}")
 
-        # 구현된 소스만 병렬 실행 대상으로 선별
-        active_sources = [src for src in required_data if src in IMPLEMENTED_SOURCE_KEYS]
-        ignored = [src for src in required_data if src not in IMPLEMENTED_SOURCE_KEYS]
-        if ignored:
-            print(f"[Retrieval] 미구현 소스 무시: {ignored}")
+        # required_data 순서를 유지하면서 구현된 소스만 선택
+        active_sources = [
+            src for src in required_data
+            if src in IMPLEMENTED_SOURCE_KEYS and src in self._source_handlers
+        ]
+        ignored = [d for d in required_data if d not in IMPLEMENTED_SOURCE_KEYS]
+
+        print(
+            f"[Retrieval] 소스 라우팅 → 활성={active_sources}"
+            + (f" | 무시됨={ignored}" if ignored else "")
+        )
 
         if not active_sources:
             print(f"[Retrieval] 처리 가능한 데이터 소스가 없습니다. 빈 데이터로 진행합니다.")
             return {"retrieved_data": []}
 
-        # ── 병렬 실행 (모든 소스를 동시에, 개별 타임아웃 적용) ────────────────
-        total_start = time.monotonic()
-        print(f"[Retrieval] 병렬 수집 시작 | 소스={active_sources} | 타임아웃={_RETRIEVAL_TIMEOUT_SECONDS}s/소스")
+        # ── 타임아웃 적용 병렬 수집 ──────────────────────────────────────────
+        print(
+            f"[Retrieval] {len(active_sources)}개 소스 병렬 수집 시작 "
+            f"(timeout={RETRIEVAL_TIMEOUT_SECS}s/소스)"
+        )
+        t_start = time.monotonic()
 
-        raw_results: list[tuple[str, list[dict[str, Any]] | Exception]] = await asyncio.gather(
-            *[self._run_source_with_timeout(src, company) for src in active_sources]
+        coros = [
+            asyncio.wait_for(
+                self._source_handlers[src](company),
+                timeout=RETRIEVAL_TIMEOUT_SECS,
+            )
+            for src in active_sources
+        ]
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+        t_elapsed = time.monotonic() - t_start
+        print(
+            f"[Retrieval] 병렬 수집 완료 | {len(active_sources)}개 소스 | "
+            f"총 소요시간={t_elapsed:.2f}s "
+            f"(단일 순차 실행 대비 최대 {len(active_sources)}배 단축 가능)"
         )
 
-        total_elapsed = time.monotonic() - total_start
-        print(f"[Retrieval] 병렬 수집 완료 | 총 소요시간: {total_elapsed:.2f}s | 소스 수: {len(active_sources)}")
-
-        # ── 결과 병합 (required_data 순서 보존) ──────────────────────────────
-        result_map: dict[str, list[dict[str, Any]] | Exception] = {
-            src: result for src, result in raw_results
-        }
-
+        # ── 결과 병합 (required_data 순서 보장, 부분 실패 허용) ───────────────
         retrieved_data: list[dict[str, Any]] = []
         source_statuses: dict[str, str] = {}
         youtube_videos: list[dict] = []
 
-        for source_name in active_sources:   # required_data 순서대로 순회
-            result = result_map[source_name]
-            if isinstance(result, Exception):
+        for source_name, result in zip(active_sources, results):
+            if isinstance(result, asyncio.TimeoutError):
+                print(
+                    f"[Retrieval][{source_name}] 타임아웃 "
+                    f"({RETRIEVAL_TIMEOUT_SECS}s 초과) — 해당 소스만 실패 처리"
+                )
+                source_statuses[source_name] = "timeout"
+                retrieved_data.append({
+                    "source": source_name,
+                    "status": "error",
+                    "error": f"timeout after {RETRIEVAL_TIMEOUT_SECS}s",
+                    "items": [],
+                })
+            elif isinstance(result, Exception):
+                print(f"[Retrieval][{source_name}] 수집 실패 (부분 실패 허용): {result}")
+                traceback.print_exc()
                 source_statuses[source_name] = f"error: {result}"
                 retrieved_data.append({
                     "source": source_name,
@@ -378,6 +354,7 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
                     "items": [],
                 })
             else:
+                print(f"[Retrieval][{source_name}] 수집 성공 | 항목 수: {len(result)}")
                 source_statuses[source_name] = "ok"
                 retrieved_data.append({
                     "source": source_name,
@@ -387,11 +364,10 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
                 if source_name == "유튜브":
                     youtube_videos = result
 
-        success_count = sum(1 for r in retrieved_data if r["status"] == "ok")
-        print(
-            f"[Retrieval] 결과 집계 완료 | 성공={success_count}/{len(retrieved_data)} "
-            f"| 전체 소요={total_elapsed:.2f}s"
-        )
+        print(f"[Retrieval] 전체 수집 완료 | 총 소스 수: {len(retrieved_data)}")
+
+        # ── 투자 심리 지표 산출 (병렬) ────────────────────────────────────────
+        await self._attach_signal_metrics(retrieved_data, company=parsed.get("company"))
 
         # ── DB 저장 ───────────────────────────────────────────────────────────
         if self._db_session:
@@ -411,6 +387,36 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
 
         return {"retrieved_data": retrieved_data}
 
+    @staticmethod
+    def _format_retrieval_text(retrieved_data: list[dict[str, Any]]) -> str:
+        """
+        retrieved_data 리스트를 required_data 순서 그대로 포맷팅하여 하나의 텍스트로 반환한다.
+
+        Analysis/Synthesis 노드에서 LLM 컨텍스트 조립 시 활용할 수 있다.
+        """
+        parts: list[str] = []
+        for entry in retrieved_data:
+            source = entry["source"]
+            if entry["status"] != "ok":
+                parts.append(f"[{source}] 수집 실패: {entry.get('error', '알 수 없는 오류')}")
+                continue
+            items = entry.get("items", [])
+            if not items:
+                parts.append(f"[{source}] 수집된 항목 없음")
+                continue
+            if source == "뉴스":
+                lines = [item.get("summary_text") or item.get("title", "") for item in items[:5]]
+                parts.append(f"[{source}]\n" + "\n".join(f"- {l}" for l in lines if l))
+            elif source == "유튜브":
+                lines = [
+                    f"[{item.get('channel_name', '')}] {item.get('title', '')}"
+                    for item in items[:5]
+                ]
+                parts.append(f"[{source}]\n" + "\n".join(f"- {l}" for l in lines if l))
+            else:
+                parts.append(f"[{source}] {len(items)}건 수집")
+        return "\n\n".join(parts)
+
     # ── 개별 소스 수집 헬퍼 ──────────────────────────────────────────────────
 
     async def _fetch_news(self, company: str) -> list[dict[str, Any]]:
@@ -425,10 +431,11 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
             return []
 
         target = company if company != "전체 시장" else None
-        print(f"[Retrieval][뉴스] 검색 대상={target!r}")
+        print(f"[Retrieval][뉴스] 수집 시작 | company={target!r}")
 
+        t0 = time.monotonic()
         items = await self._news_collector.collect(company=target)
-        print(f"[Retrieval][뉴스] 기사 {len(items)}건 수집 완료")
+        print(f"[Retrieval][뉴스] 기사 {len(items)}건 수집 완료 | 소요시간={time.monotonic() - t0:.2f}s")
         return items
 
     async def _fetch_youtube(self, company: str) -> list[dict[str, Any]]:
@@ -444,6 +451,7 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         keyword = f"{company} 주식" if company != "전체 시장" else None
         print(f"[Retrieval][유튜브] 영상 검색 중 | keyword={keyword!r}")
 
+        t0 = time.monotonic()
         videos, _, _, total = await self._youtube_client.search(keyword=keyword)
 
         items: list[dict[str, Any]] = []
@@ -475,8 +483,83 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
                 "comments": comments,
             })
 
-        print(f"[Retrieval][유튜브] 영상 {len(items)}건 수집 완료 (전체 검색결과: {total}건)")
+        print(
+            f"[Retrieval][유튜브] 영상 {len(items)}건 수집 완료 "
+            f"(전체 검색결과: {total}건) | 소요시간={time.monotonic() - t0:.2f}s"
+        )
         return items
+
+    # ── 투자 심리 지표 산출 ──────────────────────────────────────────────────
+
+    async def _attach_signal_metrics(
+        self,
+        retrieved_data: list[dict[str, Any]],
+        *,
+        company: Optional[str],
+    ) -> None:
+        """
+        retrieved_data 각 항목에 'signal' 키를 추가한다 (in-place).
+
+        유튜브: 모든 영상의 댓글 텍스트를 수집하여 감성·키워드·토픽 지표 산출.
+        뉴스  : 기사 요약 텍스트로부터 긍·부정 이벤트 및 키워드 지표 산출.
+
+        두 소스의 지표 산출을 asyncio.gather 로 동시 실행한다.
+        지표 산출 실패 시 해당 소스의 signal=None 으로 처리하고 워크플로우를 계속 진행한다.
+        """
+        signal_sources: list[str] = []
+        signal_coros = []
+
+        for entry in retrieved_data:
+            if entry.get("status") != "ok":
+                continue
+            src = entry["source"]
+            if src == "유튜브":
+                # {"text": "...", "author": "...", ...} 구조에서 text 추출
+                all_comments: list[str] = [
+                    c.get("text", "") if isinstance(c, dict) else str(c)
+                    for item in entry.get("items", [])
+                    for c in item.get("comments", [])
+                    if (c.get("text", "") if isinstance(c, dict) else str(c)).strip()
+                ]
+                signal_sources.append(src)
+                signal_coros.append(
+                    self._signal_analyzer.analyze_youtube_comments(
+                        all_comments, company=company
+                    )
+                )
+            elif src == "뉴스":
+                signal_sources.append(src)
+                signal_coros.append(
+                    self._signal_analyzer.analyze_news(
+                        entry.get("items", []), company=company
+                    )
+                )
+
+        if not signal_coros:
+            return
+
+        print(
+            f"[Retrieval] 투자 심리 지표 산출 시작 | {len(signal_coros)}개 소스 병렬 실행"
+        )
+        t_sig = time.monotonic()
+        signal_results = await asyncio.gather(*signal_coros, return_exceptions=True)
+        print(
+            f"[Retrieval] 투자 심리 지표 산출 완료 | 소요={time.monotonic() - t_sig:.2f}s"
+        )
+
+        signal_map: dict[str, Any] = dict(zip(signal_sources, signal_results))
+
+        for entry in retrieved_data:
+            src = entry["source"]
+            if src not in signal_map:
+                continue
+            sig = signal_map[src]
+            if isinstance(sig, Exception):
+                print(f"[Retrieval][{src}] 심리 지표 산출 실패 (워크플로우 계속): {sig}")
+                traceback.print_exc()
+                entry["signal"] = None
+            else:
+                entry["signal"] = sig
 
     # ── DB 영속화 ────────────────────────────────────────────────────────────
 
@@ -553,19 +636,11 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
 
     async def _analysis_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
         """
-        수집된 뉴스·YouTube 데이터를 분석하여 투자 인사이트를 State에 적재한다.
+        수집된 뉴스·YouTube 데이터와 심리 지표로 두 단계 분석을 수행한다.
 
-        세 단계로 진행한다:
-          1) 감성/신호 분석 (병렬): YouTube 댓글 감성 지표 + 뉴스 투자 신호
-          2) 통합 LLM 분석 + 투자 판단 (병렬):
-             - 통합 LLM: 원문 + 지표로 전망·리스크·투자포인트 생성
-             - 투자 판단: deterministic rule로 direction/confidence/verdict 산출
-
-        analysis_insights 키:
-          - outlook, risk, investment_points  (통합 LLM 결과)
-          - youtube_sentiment                 (YoutubeSentimentMetrics)
-          - news_signal                       (NewsSignalMetrics)
-          - investment_decision               (InvestmentDecision)
+        1) InvestmentDecisionAnalyzer — deterministic rule 기반 verdict/confidence/direction
+           + LLM rationale 생성 → investment_decision State 에 기록
+        2) LLM 분석 — outlook / risk / investment_points → analysis_insights State 에 기록
         """
         parsed: ParsedQuery = state.get("parsed_query") or {}
         company = parsed.get("company") or "전체 시장"
@@ -574,131 +649,59 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
 
         print(f"\n[AnalysisAgent] 분석 시작 | company={company!r} | intent={intent!r}")
 
-        # ── retrieval_data에서 소스별 원문 분리 ──────────────────────────────
-        news_items: list[dict] = []
-        youtube_items: list[dict] = []
-        all_comments: list[dict] = []
+        # ── 신호 추출 ─────────────────────────────────────────────────────────
+        news_signal = None
+        youtube_signal = None
+        news_lines: list[str] = []
+        youtube_lines: list[str] = []
 
         for source in retrieved_data:
             if source.get("status") != "ok":
                 continue
-            if source["source"] == "뉴스":
-                news_items = source["items"]
-            elif source["source"] == "유튜브":
-                youtube_items = source["items"]
-                for video in youtube_items:
-                    all_comments.extend(video.get("comments", []))
+            src = source["source"]
+            sig = source.get("signal")
+
+            if src == "뉴스":
+                for item in source["items"][:5]:
+                    news_lines.append(item.get("summary_text") or item.get("title", ""))
+                if sig:
+                    news_signal = sig
+            elif src == "유튜브":
+                for item in source["items"][:5]:
+                    youtube_lines.append(
+                        f"[{item.get('channel_name', '')}] {item.get('title', '')}"
+                    )
+                if sig:
+                    youtube_signal = sig
 
         print(
-            f"[AnalysisAgent] 데이터 현황 | "
-            f"뉴스={len(news_items)}건 | 유튜브 영상={len(youtube_items)}건 | 댓글={len(all_comments)}건"
+            f"[AnalysisAgent] 신호 로드 완료 "
+            f"| 뉴스기사={len(news_lines)}건 | 유튜브영상={len(youtube_lines)}건 "
+            f"| news_signal={'있음' if news_signal else '없음'} "
+            f"| youtube_signal={'있음' if youtube_signal else '없음'}"
         )
 
-        # ── 1단계: 감성/신호 분석 (병렬) ────────────────────────────────────
-        print(f"[AnalysisAgent] 1단계: 감성·신호 분석 병렬 실행 중...")
-        sentiment_result, signal_result = await asyncio.gather(
-            self._youtube_sentiment_analyzer.analyze(all_comments, company),
-            self._news_signal_analyzer.analyze(news_items, company),
-            return_exceptions=True,
+        # ── Step 1: Deterministic 투자 판단 ──────────────────────────────────
+        decision = await self._decision_analyzer.analyze(
+            news_signal=news_signal,
+            youtube_signal=youtube_signal,
+            company=parsed.get("company"),
+            intent=intent,
         )
 
-        if isinstance(sentiment_result, Exception):
-            print(f"[AnalysisAgent] YouTube 감성 분석 실패 (빈 결과로 대체): {sentiment_result!r}")
-            sentiment_result = empty_youtube_sentiment(volume=len(all_comments))
-
-        if isinstance(signal_result, Exception):
-            print(f"[AnalysisAgent] 뉴스 신호 분석 실패 (빈 결과로 대체): {signal_result!r}")
-            signal_result = empty_news_signal()
-
-        youtube_sentiment = sentiment_result
-        news_signal = signal_result
-
-        # ── 2단계: 통합 LLM 분석 + 투자 판단 (병렬) ─────────────────────────
-        print(f"[AnalysisAgent] 2단계: 통합 LLM 분석 + 투자 판단 병렬 실행 중...")
-        llm_result, decision_result = await asyncio.gather(
-            self._run_integrated_llm_analysis(
-                company, intent, news_items, youtube_items, youtube_sentiment, news_signal
-            ),
-            self._investment_decision_analyzer.analyze(
-                youtube_sentiment=youtube_sentiment,
-                news_signal=news_signal,
-                company=company,
-                intent=intent,
-            ),
-            return_exceptions=True,
-        )
-
-        if isinstance(llm_result, Exception):
-            print(f"[AnalysisAgent] 통합 LLM 분석 실패 (빈 결과로 대체): {llm_result!r}")
-            llm_result = {"outlook": "", "risk": "", "investment_points": []}
-
-        if isinstance(decision_result, Exception):
-            print(f"[AnalysisAgent] 투자 판단 실패 (보수적 fallback): {decision_result!r}")
-            decision_result = conservative_fallback()
-
-        analysis_insights = {
-            **llm_result,
-            "youtube_sentiment": youtube_sentiment,
-            "news_signal": news_signal,
-            "investment_decision": decision_result,
-        }
-
-        print(
-            f"[AnalysisAgent] 분석 완료 | "
-            f"verdict={decision_result.get('verdict', '?')} | "
-            f"confidence={decision_result.get('confidence', 0):.1%} | "
-            f"전망={llm_result.get('outlook', '')[:40]!r}..."
-        )
-        return {"analysis_insights": analysis_insights}
-
-    async def _run_integrated_llm_analysis(
-        self,
-        company: str,
-        intent: str,
-        news_items: list[dict],
-        youtube_items: list[dict],
-        youtube_sentiment: Any,
-        news_signal: Any,
-    ) -> dict[str, Any]:
-        """
-        원문 데이터 + 감성/신호 지표를 LLM에 전달하여
-        outlook / risk / investment_points 를 생성한다.
-        """
-        news_lines = [
-            item.get("summary_text") or item.get("title", "")
-            for item in news_items[:5]
-        ]
-        youtube_lines = [
-            f"[{v.get('channel_name', '')}] {v.get('title', '')}"
-            for v in youtube_items[:5]
-        ]
+        # ── Step 2: LLM 종합 분석 (outlook / risk / investment_points) ───────
         news_context = "\n".join(news_lines) if news_lines else "수집된 뉴스 없음"
         youtube_context = "\n".join(youtube_lines) if youtube_lines else "수집된 영상 없음"
 
-        dist = youtube_sentiment["sentiment_distribution"]
-        sentiment_summary = (
-            f"긍정 {dist['positive']:.0%} / 중립 {dist['neutral']:.0%} / 부정 {dist['negative']:.0%} "
-            f"(심리점수: {youtube_sentiment['sentiment_score']:+.2f})"
+        verdict_ko = {"buy": "매수", "hold": "보유", "sell": "매도"}.get(
+            decision["verdict"], decision["verdict"]
         )
-        bullish_kw = ", ".join(youtube_sentiment["bullish_keywords"][:5]) or "없음"
-        bearish_kw = ", ".join(youtube_sentiment["bearish_keywords"][:5]) or "없음"
-
-        pos_events = "\n".join(
-            f"  [{e['impact'].upper()}] {e['event']}"
-            for e in news_signal["positive_events"]
-        ) or "  없음"
-        neg_events = "\n".join(
-            f"  [{e['impact'].upper()}] {e['event']}"
-            for e in news_signal["negative_events"]
-        ) or "  없음"
-
-        print(f"[AnalysisAgent] 통합 LLM 컨텍스트 구성 | 뉴스={len(news_lines)}건 | 유튜브={len(youtube_lines)}건")
 
         system_prompt = """당신은 한국 주식 투자 분석 전문가입니다.
-수집된 뉴스, YouTube 영상 정보 및 투자 심리 지표를 종합하여 종목을 분석하세요.
+수집된 뉴스, YouTube 영상, 투자 판단 결과를 종합하여 종목을 분석하세요.
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운, 코드블록 금지):
 {
-  "outlook": "종목 전망 (2~3문장, 구체적 근거 포함)",
+  "outlook": "종목 전망 (2~3문장, verdict와 confidence 수준을 근거 포함)",
   "risk": "주요 리스크 요인 (2~3문장)",
   "investment_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"]
 }"""
@@ -706,24 +709,17 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         user_prompt = f"""분석 대상: {company}
 사용자 질문 의도: {intent}
 
+[투자 판단 결과]
+verdict    : {decision['verdict']} ({verdict_ko})
+direction  : {decision['direction']}
+confidence : {decision['confidence']:.3f}
+rationale  : {decision['rationale']}
+
 [수집된 뉴스]
 {news_context}
 
 [수집된 YouTube 영상]
-{youtube_context}
-
-[YouTube 댓글 투자 심리 지표]
-감성 분포: {sentiment_summary}
-강세 키워드: {bullish_kw}
-약세 키워드: {bearish_kw}
-주요 화제: {', '.join(youtube_sentiment['topics'][:3]) or '없음'}
-
-[뉴스 투자 신호]
-긍정 이벤트:
-{pos_events}
-부정 이벤트:
-{neg_events}
-핵심 키워드: {', '.join(news_signal['keywords'][:5]) or '없음'}"""
+{youtube_context}"""
 
         response = await self._llm.ainvoke([
             ("system", system_prompt),
@@ -731,220 +727,235 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         ])
 
         raw = response.content.strip()
-        print(f"[AnalysisAgent] 통합 LLM 응답 수신 | 길이={len(raw)}자")
+        print(f"[AnalysisAgent] LLM 응답 수신 | 길이={len(raw)}자")
 
         try:
             data = json.loads(raw)
-            return {
+            analysis_insights = {
                 "outlook": str(data.get("outlook", "")),
                 "risk": str(data.get("risk", "")),
                 "investment_points": list(data.get("investment_points", [])),
             }
         except json.JSONDecodeError:
-            print(f"[AnalysisAgent] 통합 LLM JSON 파싱 실패 — 원문 텍스트로 fallback")
-            return {"outlook": raw, "risk": "", "investment_points": []}
+            print(f"[AnalysisAgent] JSON 파싱 실패 — 원문 텍스트로 fallback")
+            analysis_insights = {
+                "outlook": raw,
+                "risk": "",
+                "investment_points": [],
+            }
+
+        print(f"[AnalysisAgent] 분석 완료 | verdict={decision['verdict']} | 전망={analysis_insights['outlook'][:50]!r}...")
+        return {
+            "investment_decision": dict(decision),
+            "analysis_insights": analysis_insights,
+        }
 
     async def _synthesis_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
         """
-        investment_decision을 기반으로 사용자 친화적 최종 답변을 생성한다.
+        investment_decision 을 기반으로 최종 자연어 투자 참고 응답을 생성한다.
 
-        우선순위:
-          1. analysis_insights.investment_decision 이 있으면 이를 기반으로 구성
-             → verdict 명시 → reasons 기반 근거 → 리스크 → 면책 문구
-          2. investment_decision 이 없으면 outlook/risk/investment_points 로 fallback
-             → 첫 문장에 "참고용 분석 결과"임을 명시
+        경로 A (정상): investment_decision.verdict 존재
+          → verdict·confidence·reasons·risk_factors 기반 LLM 합성
+          → LLM은 새 근거 생성 금지, reasons 텍스트화 역할만 수행
 
-        verdict, confidence, direction 은 이 단계에서 절대 변경하지 않는다.
+        경로 B (fallback): investment_decision 누락
+          → analysis_insights 기반 응답, "참고용 분석 결과" 명시
+
+        공통: 면책 문구 자동 부착, verdict/confidence 콘솔 pretty-print
         """
         query = state.get("user_query", "")
-        analysis_insights = state.get("analysis_insights", {})
+        investment_decision = state.get("investment_decision") or {}
+        analysis_insights = state.get("analysis_insights") or {}
         parsed: ParsedQuery = state.get("parsed_query") or {}
         company = parsed.get("company") or "전체 시장"
         intent = parsed.get("intent", "기타")
 
-        print(f"\n[SynthesisAgent] 응답 종합 시작 | query={query!r} | company={company!r}")
+        print(f"\n[SynthesisAgent] 종합 시작 | company={company!r} | intent={intent!r}")
 
-        investment_decision = analysis_insights.get("investment_decision")
-        has_decision = bool(investment_decision and investment_decision.get("verdict"))
+        verdict = investment_decision.get("verdict", "")
 
-        if has_decision:
-            print(
-                f"[SynthesisAgent] investment_decision 확인 | "
-                f"verdict={investment_decision['verdict']} | "
-                f"confidence={investment_decision.get('confidence', 0):.1%} | "
-                f"direction={investment_decision.get('direction', '?')}"
-            )
-            print(f"[SynthesisAgent] decision 기반 응답 생성 중...")
-            body = await self._synthesize_from_decision(
+        if verdict:
+            final_response = await self._synthesize_from_decision(
                 query=query,
                 company=company,
                 intent=intent,
-                decision=investment_decision,
+                investment_decision=investment_decision,
             )
-            mode = "decision"
         else:
-            print(f"[SynthesisAgent] investment_decision 없음 → LLM 분석 결과 fallback")
-            body = await self._synthesize_from_analysis(
+            print("[SynthesisAgent] investment_decision 없음 → analysis_insights fallback")
+            final_response = await self._synthesize_fallback(
                 query=query,
                 company=company,
                 intent=intent,
                 analysis_insights=analysis_insights,
             )
-            mode = "fallback"
 
-        # ── 면책 문구 자동 부착 ────────────────────────────────────────────
-        DISCLAIMER = (
+        _DISCLAIMER = (
             "\n\n※ 본 응답은 투자 권유가 아닌 정보 제공 목적으로만 활용되어야 하며, "
             "투자 판단 및 그에 따른 결과는 전적으로 투자자 본인의 책임입니다."
         )
-        final_response = body + DISCLAIMER
+        final_response = final_response + _DISCLAIMER
 
-        # ── pretty-print ───────────────────────────────────────────────────
-        verdict = investment_decision.get("verdict", "N/A") if has_decision else "N/A"
-        confidence = investment_decision.get("confidence", 0.0) if has_decision else 0.0
-        verdict_label = {"buy": "매수(BUY)", "sell": "매도(SELL)", "hold": "보유(HOLD)"}.get(
-            verdict, verdict
+        # ── pretty-print ──────────────────────────────────────────────────────
+        confidence = investment_decision.get("confidence", 0.0)
+        self._print_synthesis_result(
+            verdict=verdict or "N/A (fallback)",
+            confidence=confidence,
+            body=final_response,
         )
-
-        print(f"\n[SynthesisAgent] ===== 최종 응답 =====")
-        print(f"  모드      : {'decision 기반' if mode == 'decision' else 'fallback(분석 결과 기반)'}")
-        print(f"  종목      : {company}")
-        print(f"  의견      : {verdict_label}")
-        print(f"  신뢰도    : {confidence:.1%}")
-        print(f"  응답 길이  : {len(final_response)}자")
-        print(f"  본문 앞 150자 :\n  {final_response[:150]!r}")
-        print(f"[SynthesisAgent] ====================\n")
 
         return {"final_response": final_response}
 
+    # ── 합성 경로 A: investment_decision 기반 ─────────────────────────────────
+
     async def _synthesize_from_decision(
         self,
+        *,
         query: str,
         company: str,
         intent: str,
-        decision: dict[str, Any],
+        investment_decision: dict,
     ) -> str:
         """
-        investment_decision(verdict/confidence/direction/reasons/risk_factors)을 기반으로
-        사용자 친화적 최종 응답 본문을 생성한다.
-
-        LLM은 제공된 reasons만 문장으로 풀어쓰며, 새로운 근거를 생성하지 않는다.
+        investment_decision의 verdict·reasons·risk_factors 만을 사용하여
+        자연어 응답을 생성한다. LLM이 새로운 근거를 만들지 못하도록 엄격히 지시한다.
         """
-        verdict = decision.get("verdict", "hold")
-        confidence = decision.get("confidence", 0.0)
-        direction = decision.get("direction", "neutral")
-        reasons = decision.get("reasons", {})
-        risk_factors = decision.get("risk_factors", [])
+        verdict     = investment_decision["verdict"]
+        confidence  = investment_decision["confidence"]
+        direction   = investment_decision.get("direction", "neutral")
+        rationale   = investment_decision.get("rationale", "")
+        reasons     = investment_decision.get("reasons", {})
+        risk_factors = investment_decision.get("risk_factors", [])
 
-        verdict_kr = {"buy": "매수", "sell": "매도", "hold": "보유"}.get(verdict, "보유")
-        direction_kr = {"bullish": "강세", "bearish": "약세", "neutral": "중립"}.get(
-            direction, "중립"
-        )
-
-        # 확신 수준 표현
-        if confidence >= 0.7:
-            confidence_desc = "높은 확신"
-        elif confidence >= 0.4:
-            confidence_desc = "일정 수준의 가능성"
-        else:
-            confidence_desc = "불확실성이 높은 상태"
-
-        # hold + 낮은 confidence → 보수적 판단 안내
-        conservative_note = (
-            "\n[주의] 현재 신호 부족으로 인한 보수적 판단입니다. "
-            "추가적인 시장 정보 확인 후 판단하시길 권고합니다."
-            if (verdict == "hold" and confidence <= 0.3)
-            else ""
-        )
-
-        pos_reasons = reasons.get("positive", [])
-        neg_reasons = reasons.get("negative", [])
-        pos_text = "\n".join(f"- {r}" for r in pos_reasons) if pos_reasons else "- 해당 없음"
-        neg_text = "\n".join(f"- {r}" for r in neg_reasons) if neg_reasons else "- 해당 없음"
-        risk_text = (
-            "\n".join(f"- {r}" for r in risk_factors) if risk_factors else "- 해당 없음"
-        )
+        verdict_ko  = {"buy": "매수", "hold": "보유", "sell": "매도"}[verdict]
+        conf_label  = self._confidence_label(confidence)
+        is_conservative = verdict == "hold" and confidence <= 0.3
 
         print(
-            f"[SynthesisAgent] 프롬프트 구성 | verdict={verdict_kr} | "
-            f"긍정근거={len(pos_reasons)}건 | 부정근거={len(neg_reasons)}건 | "
-            f"리스크={len(risk_factors)}건"
+            f"[SynthesisAgent] 경로 A (decision 기반) "
+            f"| verdict={verdict}({verdict_ko}) | confidence={confidence:.3f}({conf_label})"
+            + (" | 보수적판단" if is_conservative else "")
         )
 
-        system_prompt = (
-            "당신은 투자 정보 제공 전문가입니다.\n"
-            "아래 투자 판단 데이터를 바탕으로 사용자에게 명확하고 친절한 한국어 설명을 작성하세요.\n\n"
-            "작성 규칙:\n"
-            "- 첫 문장에 verdict(매수/보유/매도)를 명확히 제시할 것 — 완곡 표현 금지\n"
-            "- 제공된 근거(reasons)만 사용하고, 새로운 근거를 창작하지 말 것\n"
-            "- 2~4개 문단 구성: 결론(verdict) → 긍정 근거 → 부정 근거 및 리스크\n"
-            "- 마크다운 헤더(#) 없이 일반 텍스트로 작성\n"
-            "- 면책 문구는 직접 작성하지 말 것 (자동으로 추가됨)"
+        # 근거 텍스트 구성
+        pos_reasons = reasons.get("positive", [])
+        neg_reasons = reasons.get("negative", [])
+        pos_text = "\n".join(f"  - {r}" for r in pos_reasons) if pos_reasons else "  - 없음"
+        neg_text = "\n".join(f"  - {r}" for r in neg_reasons) if neg_reasons else "  - 없음"
+        risk_text = "\n".join(f"  - {r}" for r in risk_factors) if risk_factors else "  - 없음"
+
+        conservative_note = (
+            "\n[주의] 이 판단은 수집된 데이터가 충분하지 않아 신호 부족으로 인한 "
+            "보수적 기본값입니다. 추가 정보 확인을 권장합니다."
+            if is_conservative else ""
         )
 
-        user_prompt = (
-            f"사용자 질문: {query}\n"
-            f"분석 대상: {company} | 질문 의도: {intent}\n\n"
-            f"[투자 판단]\n"
-            f"의견: {verdict_kr}({verdict.upper()})\n"
-            f"방향성: {direction_kr} | 신뢰도: {confidence:.1%}({confidence_desc})"
-            f"{conservative_note}\n\n"
-            f"[긍정 근거]\n{pos_text}\n\n"
-            f"[부정 근거]\n{neg_text}\n\n"
-            f"[리스크 요인]\n{risk_text}\n\n"
-            f"위 정보를 바탕으로 설명하세요. "
-            f"첫 문장에 '{verdict_kr}' 의견을 명확히 표현하고, 제공된 근거만 활용하세요."
-        )
+        system_prompt = """당신은 한국 주식 투자 어드바이저입니다.
+아래에 제공된 투자 판단 결과와 근거를 사용자 친화적 한국어 서술로 변환하세요.
 
+절대 규칙:
+1. verdict(매수/보유/매도) 표현을 완곡하게 바꾸거나 의미를 흐리면 안 됩니다.
+2. 제공된 reasons와 risk_factors 이외의 새로운 근거나 수치를 생성하지 마세요.
+3. 응답 구조: [결론 한 줄] → [긍정 근거 요약] → [부정·리스크 요약] (총 2~4문단)
+4. 마크다운 헤더(#) 없이 일반 텍스트로만 작성하세요."""
+
+        user_prompt = f"""사용자 질문: {query}
+분석 대상: {company}
+질문 의도: {intent}
+{conservative_note}
+
+[확정된 투자 판단 — 변경 불가]
+  의견(verdict)  : {verdict_ko} ({verdict})
+  방향성         : {direction}
+  확신도         : {confidence:.1%} ({conf_label})
+  판단 근거 요약 : {rationale}
+
+[긍정 근거 — 이 내용만 사용하세요]
+{pos_text}
+
+[부정 근거 — 이 내용만 사용하세요]
+{neg_text}
+
+[리스크 요인 — 이 내용만 사용하세요]
+{risk_text}
+
+위 정보를 바탕으로 verdict를 가장 먼저 명확하게 전달하고,
+근거와 리스크를 자연스럽게 서술하는 2~4문단 한국어 응답을 작성하세요.
+새로운 사실이나 수치를 추가하지 마세요."""
+
+        print(f"[SynthesisAgent] LLM 호출 중 (경로 A)...")
         response = await self._llm.ainvoke([
             ("system", system_prompt),
             ("human", user_prompt),
         ])
-        result = response.content.strip()
-        print(f"[SynthesisAgent] decision 기반 LLM 응답 수신 | 길이={len(result)}자")
-        return result
+        text = response.content.strip()
+        print(f"[SynthesisAgent] LLM 응답 수신 | 길이={len(text)}자")
+        return text
 
-    async def _synthesize_from_analysis(
+    # ── 합성 경로 B: analysis_insights fallback ───────────────────────────────
+
+    async def _synthesize_fallback(
         self,
+        *,
         query: str,
         company: str,
         intent: str,
-        analysis_insights: dict[str, Any],
+        analysis_insights: dict,
     ) -> str:
-        """
-        investment_decision 누락 시 outlook/risk/investment_points 로 fallback 응답을 생성한다.
-        첫 문장에 반드시 '참고용 분석 결과'임을 명시한다.
-        """
+        """investment_decision 누락 시 analysis_insights 기반 fallback 응답을 생성한다."""
         investment_points = analysis_insights.get("investment_points", [])
         points_text = (
-            "\n".join(f"  - {p}" for p in investment_points)
-            if investment_points
-            else "  - 없음"
+            "\n".join(f"  - {p}" for p in investment_points) if investment_points else "  - 없음"
         )
 
-        system_prompt = (
-            "당신은 친절하고 전문적인 한국 주식 투자 어드바이저입니다.\n"
-            "투자 판단 신호가 부족하여 참고용 분석 결과만 제공하는 상황입니다.\n\n"
-            "작성 규칙:\n"
-            "- 첫 문장에 '본 응답은 참고용 분석 결과입니다'를 반드시 포함할 것\n"
-            "- 3~5문단 분량으로 작성\n"
-            "- 마크다운 헤더(#) 없이 일반 텍스트로 작성"
-        )
+        system_prompt = """당신은 한국 주식 투자 어드바이저입니다.
+아래 분석 결과를 바탕으로 사용자 질문에 대한 참고용 응답을 작성하세요.
+투자 판단 데이터가 부족하여 정량 의견 대신 정성 분석만 제공됩니다.
+마크다운 헤더(#) 없이 일반 텍스트로 작성하세요."""
 
-        user_prompt = (
-            f"사용자 질문: {query}\n"
-            f"분석 대상: {company} | 질문 의도: {intent}\n\n"
-            f"[분석 결과 (참고용)]\n"
-            f"전망: {analysis_insights.get('outlook', '정보 없음')}\n"
-            f"리스크: {analysis_insights.get('risk', '정보 없음')}\n"
-            f"핵심 투자 포인트:\n{points_text}\n\n"
-            "위 분석을 바탕으로 응답을 작성하세요."
-        )
+        user_prompt = f"""[참고용 분석 결과 — 투자 판단 데이터 부족]
+사용자 질문: {query}
+분석 대상: {company}
+질문 의도: {intent}
 
+전망: {analysis_insights.get('outlook', '정보 없음')}
+리스크: {analysis_insights.get('risk', '정보 없음')}
+투자 포인트:
+{points_text}
+
+이 결과는 정량 신호 부족으로 참고용 분석에 해당합니다.
+이를 명시하고 2~3문단으로 사용자 친화적 응답을 작성하세요."""
+
+        print(f"[SynthesisAgent] LLM 호출 중 (경로 B fallback)...")
         response = await self._llm.ainvoke([
             ("system", system_prompt),
             ("human", user_prompt),
         ])
-        result = response.content.strip()
-        print(f"[SynthesisAgent] fallback LLM 응답 수신 | 길이={len(result)}자")
-        return result
+        text = response.content.strip()
+        print(f"[SynthesisAgent] LLM fallback 응답 수신 | 길이={len(text)}자")
+        return text
+
+    # ── 헬퍼 ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _confidence_label(confidence: float) -> str:
+        """confidence 수치를 사람이 읽기 쉬운 확신 수준 레이블로 변환한다."""
+        if confidence >= 0.7:
+            return "높은 확신"
+        if confidence >= 0.4:
+            return "일정 수준의 가능성"
+        return "불확실성이 높은 상태"
+
+    @staticmethod
+    def _print_synthesis_result(verdict: str, confidence: float, body: str) -> None:
+        """최종 응답 요약을 콘솔에 pretty-print 한다."""
+        preview = body[:120].replace("\n", " ")
+        print(
+            f"\n[SynthesisAgent] ══ 최종 응답 ══════════════════════════════\n"
+            f"  verdict    : {verdict}\n"
+            f"  confidence : {confidence:.4f} "
+            f"({LangGraphInvestmentWorkflow._confidence_label(confidence)})\n"
+            f"  본문 미리보기: {preview}...\n"
+            f"  전체 길이  : {len(body)}자\n"
+            f"  ══════════════════════════════════════════════════════"
+        )

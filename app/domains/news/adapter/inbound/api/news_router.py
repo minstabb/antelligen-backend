@@ -240,6 +240,7 @@ async def get_interest_article(
     usecase = GetInterestArticleUseCase(
         user_article_repo=UserSavedArticleRepositoryImpl(db),
         content_repo=ArticleContentRepositoryImpl(vector_db),
+        content_provider=ArticleContentScraper(),
     )
     result = await usecase.execute(account_id=account_id, article_id=article_id)
     return BaseResponse.ok(data=result)

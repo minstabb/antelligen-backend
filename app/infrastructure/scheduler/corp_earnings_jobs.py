@@ -30,7 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 async def job_refresh_corp_earnings() -> None:
-    """현재·내년의 잠정실적 일정을 재생성해 DB 에 upsert. 기존 레코드는 unique 제약으로 dedup."""
+    """잠정실적 일정을 전량 재생성.
+
+    정적 데이터 파일(`corp_earnings_calendar_data.py`)이 진실의 원천이므로,
+    매 실행마다 `source='corp_earnings'` 전량 삭제 후 현재 데이터로 재삽입한다.
+    날짜 변경·삭제·추가가 자동 반영되며, 분석 파이프라인 제외 소스이므로 FK CASCADE 부작용 없음.
+    """
     print("[corp_earnings.job] ▶ 잠정실적 일정 재수집 시작")
     async with AsyncSessionLocal() as session:
         fetch_port = CompositeEconomicEventClient(
@@ -39,12 +44,15 @@ async def job_refresh_corp_earnings() -> None:
         repo = EconomicEventRepositoryImpl(db=session)
         usecase = SyncEconomicEventsUseCase(fetch_port=fetch_port, repository=repo)
         try:
+            deleted = await repo.delete_by_source("corp_earnings")
+            print(f"[corp_earnings.job] 기존 corp_earnings 이벤트 {deleted}건 삭제")
+
             # 전·올해·내년 3개년 범위로 수집 (신규 연도 자동 반영)
             request = SyncEconomicEventsRequest(years_back=1, years_forward=1)
             result = await usecase.execute(request)
             print(
-                f"[corp_earnings.job] ✅ 완료 fetched={result.fetched_count} "
-                f"new={result.new_count} duplicate={result.duplicate_count}"
+                f"[corp_earnings.job] ✅ 완료 deleted={deleted} "
+                f"fetched={result.fetched_count} new={result.new_count}"
             )
         except Exception as exc:
             print(f"[corp_earnings.job] ❌ 실패: {exc}")

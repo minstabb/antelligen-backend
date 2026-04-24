@@ -1,268 +1,232 @@
 """
-투자 판단 분석기 (Deterministic Rule Engine + LLM Rationale).
+투자 판단 산출 어댑터 (Adapter Layer — Outbound / External).
 
-direction / confidence / verdict 는 입력 신호에 대해 항상 동일한 결과를 반환하는
-deterministic 규칙으로 계산한다. LLM은 reasons / risk_factors 설명 생성에만 사용한다.
+흐름:
+  1. 도메인 서비스(investment_decision_engine)로 news_score, direction,
+     confidence, verdict 를 deterministic 하게 계산한다.
+  2. LLM을 호출하여 reasons(긍정·부정 요인), risk_factors, rationale 텍스트를 생성한다.
+     LLM 호출이 실패해도 rule 기반 결과는 유지되고, fallback 텍스트가 채워진다.
+  3. 입력 신호가 모두 비어있으면 보수적 기본값(hold, confidence=0.2)을 반환한다.
 
-계산 흐름:
-    1. news_score  = Σ(pos_events.impact_weight) - Σ(neg_events.impact_weight)
-    2. direction   = bullish | neutral | bearish  (threshold 기반)
-    3. confidence  = sigmoid(w1×|news_score| + w2×|sentiment_score|)
-    4. verdict     = buy | hold | sell  (direction + confidence 기반)
-    5. rationale   = LLM 호출 → reasons, risk_factors  (실패 시 이벤트 텍스트로 fallback)
+direction / confidence / verdict 는 LLM에 의해 변경되지 않는다.
 """
 
 import json
-import math
-from typing import Any
+import traceback
+from typing import Optional
 
 from langchain_openai import ChatOpenAI
 
+from app.domains.investment.application.port.investment_decision_port import InvestmentDecisionPort
+from app.domains.investment.domain.service.investment_decision_engine import (
+    FALLBACK_CONFIDENCE,
+    compute_confidence,
+    compute_direction,
+    compute_news_score,
+    compute_verdict,
+    is_signal_insufficient,
+)
 from app.domains.investment.domain.value_object.investment_decision import (
+    DecisionReasons,
     InvestmentDecision,
-    conservative_fallback,
 )
-from app.domains.investment.domain.value_object.youtube_sentiment_metrics import (
-    NewsSignalMetrics,
-    YoutubeSentimentMetrics,
-)
+from app.domains.investment.domain.value_object.news_signal_metrics import NewsSignalMetrics
+from app.domains.investment.domain.value_object.youtube_signal_metrics import YoutubeSignalMetrics
 
-# ── 파라미터 상수 ──────────────────────────────────────────────────────────────
-
-# impact 문자열 → 가중치
-_IMPACT_WEIGHTS: dict[str, float] = {"high": 3.0, "medium": 2.0, "low": 1.0}
-
-# direction 결정 임계값 (news_score 기준)
-_DIRECTION_THRESHOLD: float = 1.0
-
-# confidence = sigmoid(w1×|news_score| + w2×|sentiment_score|)
-_W1_NEWS: float = 0.3        # 뉴스 점수 기여 계수
-_W2_SENTIMENT: float = 1.0   # YouTube 감성 기여 계수
-
-# verdict 결정 confidence 임계값
-_VERDICT_CONFIDENCE_THRESHOLD: float = 0.6
+_VERDICT_KO = {"buy": "매수", "hold": "보유", "sell": "매도"}
+_DIRECTION_KO = {"bullish": "상승", "bearish": "하락", "neutral": "중립"}
 
 
-# ── 순수 함수 헬퍼 ─────────────────────────────────────────────────────────────
-
-def _sigmoid(x: float) -> float:
-    return 1.0 / (1.0 + math.exp(-x))
-
-
-def _impact_weight(impact: str) -> float:
-    return _IMPACT_WEIGHTS.get(str(impact).lower(), 1.0)
-
-
-def _compute_news_score(news_signal: NewsSignalMetrics) -> tuple[float, float, float]:
-    """
-    pos_score, neg_score, news_score 를 반환한다.
-    각 이벤트의 impact 가중치를 합산한다.
-    """
-    pos_score = sum(
-        _impact_weight(e.get("impact", "low"))
-        for e in news_signal.get("positive_events", [])
+def _conservative_fallback(reason: str) -> InvestmentDecision:
+    """신호 부족·오류 시 반환하는 보수적 기본 판단."""
+    return InvestmentDecision(
+        direction="neutral",
+        confidence=FALLBACK_CONFIDENCE,
+        verdict="hold",
+        reasons=DecisionReasons(positive=[], negative=[]),
+        risk_factors=["신호 데이터 부족으로 판단 유보"],
+        rationale=f"[보수적 기본값] {reason}",
+        news_score=0.0,
+        sentiment_score=0.0,
     )
-    neg_score = sum(
-        _impact_weight(e.get("impact", "low"))
-        for e in news_signal.get("negative_events", [])
-    )
-    return pos_score, neg_score, pos_score - neg_score
 
 
-def _compute_direction(news_score: float) -> str:
-    if news_score > _DIRECTION_THRESHOLD:
-        return "bullish"
-    elif news_score < -_DIRECTION_THRESHOLD:
-        return "bearish"
-    return "neutral"
-
-
-def _compute_confidence(news_score: float, sentiment_score: float) -> float:
-    raw = _W1_NEWS * abs(news_score) + _W2_SENTIMENT * abs(sentiment_score)
-    return round(_sigmoid(raw), 4)
-
-
-def _compute_verdict(direction: str, confidence: float) -> str:
-    if direction == "bullish" and confidence > _VERDICT_CONFIDENCE_THRESHOLD:
-        return "buy"
-    if direction == "bearish" and confidence > _VERDICT_CONFIDENCE_THRESHOLD:
-        return "sell"
-    return "hold"
-
-
-# ── 분석기 클래스 ──────────────────────────────────────────────────────────────
-
-class InvestmentDecisionAnalyzer:
+class InvestmentDecisionAnalyzer(InvestmentDecisionPort):
     """
-    YoutubeSentimentMetrics + NewsSignalMetrics → InvestmentDecision.
+    뉴스·유튜브 심리 지표로부터 구조화된 투자 판단을 산출하는 구현체.
 
-    direction / confidence / verdict 는 deterministic rule로 결정되며,
-    동일 입력에 대해 항상 동일한 결과를 반환한다.
+    deterministic rule → LLM rationale 순서로 동작한다.
     """
 
-    def __init__(self, llm: ChatOpenAI) -> None:
-        self._llm = llm
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
+        self._llm = ChatOpenAI(api_key=api_key, model=model, temperature=0)
+
+    # ── 공개 메서드 ───────────────────────────────────────────────────────────
 
     async def analyze(
         self,
-        youtube_sentiment: YoutubeSentimentMetrics,
-        news_signal: NewsSignalMetrics,
-        company: str,
+        *,
+        news_signal: Optional[NewsSignalMetrics],
+        youtube_signal: Optional[YoutubeSignalMetrics],
+        company: Optional[str],
         intent: str,
     ) -> InvestmentDecision:
         """
-        투자 판단을 수행하고 InvestmentDecision을 반환한다.
+        두 신호를 결합하여 buy / hold / sell 판단을 반환한다.
 
-        신호 부족(이벤트 0건 + 댓글 0건)이면 conservative_fallback()을 즉시 반환한다.
-        LLM rationale 생성 실패 시 이벤트 텍스트로 대체하여 결과는 항상 반환된다.
+        Returns:
+            InvestmentDecision — 신호 부족 시 보수적 fallback.
         """
-        print(f"\n[DecisionAnalyzer] 투자 판단 시작 | company={company!r} | intent={intent!r}")
+        company_label = company or "전체 시장"
 
-        # ── 신호 부족 감지 ──────────────────────────────────────────────────
-        has_news_events = bool(
-            news_signal.get("positive_events") or news_signal.get("negative_events")
-        )
-        has_comments = youtube_sentiment.get("volume", 0) > 0
+        # ── 신호 값 추출 ──────────────────────────────────────────────────────
+        pos_events = (news_signal or {}).get("positive_events", [])
+        neg_events = (news_signal or {}).get("negative_events", [])
+        news_kws   = (news_signal or {}).get("keywords", [])
 
-        if not has_news_events and not has_comments:
-            print(f"[DecisionAnalyzer] 신호 없음 (이벤트 0건 + 댓글 0건) → 보수적 fallback 반환")
-            return conservative_fallback()
+        sentiment_score = (youtube_signal or {}).get("sentiment_score", 0.0)
+        yt_volume       = (youtube_signal or {}).get("volume", 0)
+        bull_kws        = (youtube_signal or {}).get("bullish_keywords", [])
+        bear_kws        = (youtube_signal or {}).get("bearish_keywords", [])
+        dist            = (youtube_signal or {}).get("sentiment_distribution", {})
 
-        # ── Step 1: news_score 계산 ────────────────────────────────────────
-        pos_score, neg_score, news_score = _compute_news_score(news_signal)
-        sentiment_score = youtube_sentiment.get("sentiment_score", 0.0)
-
-        print(f"[DecisionAnalyzer] ── Step 1: Score 계산")
+        print(f"\n[DecisionAnalyzer] 판단 시작 | company={company_label!r} | intent={intent!r}")
         print(
-            f"  positive_events: {len(news_signal.get('positive_events', []))}건 "
-            f"→ weighted_sum = {pos_score:.1f}"
-        )
-        print(
-            f"  negative_events: {len(news_signal.get('negative_events', []))}건 "
-            f"→ weighted_sum = {neg_score:.1f}"
-        )
-        print(f"  news_score      = {pos_score:.1f} - {neg_score:.1f} = {news_score:+.1f}")
-        print(f"  sentiment_score = {sentiment_score:+.4f}  (YouTube, 절대값 사용)")
-
-        # ── Step 2: direction 결정 ─────────────────────────────────────────
-        direction = _compute_direction(news_score)
-        print(
-            f"[DecisionAnalyzer] ── Step 2: Direction = {direction.upper()!r}  "
-            f"(|news_score|={abs(news_score):.1f}, threshold=±{_DIRECTION_THRESHOLD})"
+            f"[DecisionAnalyzer] 입력 신호 요약 "
+            f"| 긍정이벤트={len(pos_events)}건 | 부정이벤트={len(neg_events)}건 "
+            f"| yt_volume={yt_volume} | sentiment={sentiment_score:+.3f}"
         )
 
-        # ── Step 3: confidence 계산 ────────────────────────────────────────
-        confidence = _compute_confidence(news_score, sentiment_score)
-        raw_input = _W1_NEWS * abs(news_score) + _W2_SENTIMENT * abs(sentiment_score)
+        # ── 신호 부족 체크 → 보수적 fallback ─────────────────────────────────
+        if is_signal_insufficient(pos_events, neg_events, yt_volume):
+            print("[DecisionAnalyzer] 신호 부족 → 보수적 fallback 반환 (hold, confidence=0.2)")
+            return _conservative_fallback("뉴스 이벤트와 유튜브 댓글 모두 수집되지 않았습니다.")
+
+        # ── Step 1: Deterministic rule 계산 ──────────────────────────────────
+        news_score  = compute_news_score(pos_events, neg_events)
+        direction   = compute_direction(news_score)
+        confidence  = compute_confidence(news_score, sentiment_score)
+        verdict     = compute_verdict(direction, confidence)
+
         print(
-            f"[DecisionAnalyzer] ── Step 3: Confidence "
-            f"= sigmoid({_W1_NEWS}×{abs(news_score):.2f} + {_W2_SENTIMENT}×{abs(sentiment_score):.4f})"
-            f" = sigmoid({raw_input:.4f}) = {confidence:.4f}"
+            f"[DecisionAnalyzer] ── Rule 계산 결과 ──────────────────────\n"
+            f"  news_score  = {news_score:+.4f}  "
+            f"(pos={sum(3 if e['impact']=='high' else 2 if e['impact']=='medium' else 1 for e in pos_events):.0f}"
+            f" - neg={sum(3 if e['impact']=='high' else 2 if e['impact']=='medium' else 1 for e in neg_events):.0f})\n"
+            f"  direction   = {direction}  (threshold=±1.5)\n"
+            f"  confidence  = {confidence:.4f}  "
+            f"(sigmoid(W1={1.0}*|{news_score:.2f}| + W2={0.5}*|{sentiment_score:.3f}|))\n"
+            f"  verdict     = {verdict}  "
+            f"({'confidence > 0.6 충족' if confidence > 0.6 else 'confidence ≤ 0.6 → hold'})\n"
+            f"  ─────────────────────────────────────────────────────"
         )
 
-        # ── Step 4: verdict 결정 ───────────────────────────────────────────
-        verdict = _compute_verdict(direction, confidence)
-        print(
-            f"[DecisionAnalyzer] ── Step 4: Verdict = {verdict.upper()!r}  "
-            f"(direction={direction}, confidence={confidence:.4f} "
-            f"{'>' if confidence > _VERDICT_CONFIDENCE_THRESHOLD else '<='} {_VERDICT_CONFIDENCE_THRESHOLD})"
-        )
-
-        # ── Step 5: LLM rationale 생성 ────────────────────────────────────
-        print(f"[DecisionAnalyzer] ── Step 5: LLM rationale 생성 중...")
-        reasons, risk_factors = await self._generate_rationale(
-            company=company,
+        # ── Step 2: LLM rationale 생성 ───────────────────────────────────────
+        llm_result = await self._generate_rationale(
+            company=company_label,
             intent=intent,
             direction=direction,
             confidence=confidence,
             verdict=verdict,
-            news_signal=news_signal,
-            youtube_sentiment=youtube_sentiment,
+            news_score=news_score,
+            sentiment_score=sentiment_score,
+            pos_events=pos_events,
+            neg_events=neg_events,
+            news_kws=news_kws,
+            bull_kws=bull_kws,
+            bear_kws=bear_kws,
+            dist=dist,
         )
 
-        decision: InvestmentDecision = {
-            "direction": direction,
-            "confidence": confidence,
-            "verdict": verdict,
-            "reasons": reasons,
-            "risk_factors": risk_factors,
-        }
-
-        # ── 결과 출력 ──────────────────────────────────────────────────────
-        verdict_label = {"buy": "매수(BUY)", "sell": "매도(SELL)", "hold": "보유(HOLD)"}.get(
-            verdict, verdict
+        decision = InvestmentDecision(
+            direction=direction,
+            confidence=confidence,
+            verdict=verdict,
+            reasons=llm_result["reasons"],
+            risk_factors=llm_result["risk_factors"],
+            rationale=llm_result["rationale"],
+            news_score=news_score,
+            sentiment_score=sentiment_score,
         )
-        print(f"\n[DecisionAnalyzer] =========================================")
-        print(f"  종목      : {company}")
-        print(f"  방향성    : {direction.upper()}")
-        print(f"  신뢰도    : {confidence:.1%}")
-        print(f"  최종 의견 : {verdict_label}")
-        print(f"  긍정 근거 ({len(reasons['positive'])}건):")
-        for r in reasons["positive"]:
-            print(f"    [+] {r}")
-        print(f"  부정 근거 ({len(reasons['negative'])}건):")
-        for r in reasons["negative"]:
-            print(f"    [-] {r}")
-        print(f"  리스크 요인 ({len(risk_factors)}건):")
-        for r in risk_factors:
-            print(f"    [!] {r}")
-        print(f"[DecisionAnalyzer] =========================================\n")
 
+        # ── 최종 판단 pretty-print ─────────────────────────────────────────
+        self._print_decision(decision, company_label)
         return decision
+
+    # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
 
     async def _generate_rationale(
         self,
+        *,
         company: str,
         intent: str,
         direction: str,
         confidence: float,
         verdict: str,
-        news_signal: NewsSignalMetrics,
-        youtube_sentiment: YoutubeSentimentMetrics,
-    ) -> tuple[dict[str, list[str]], list[str]]:
+        news_score: float,
+        sentiment_score: float,
+        pos_events: list,
+        neg_events: list,
+        news_kws: list,
+        bull_kws: list,
+        bear_kws: list,
+        dist: dict,
+    ) -> dict:
         """
-        LLM으로 reasons(positive/negative)와 risk_factors를 생성한다.
+        LLM을 호출하여 reasons / risk_factors / rationale 를 생성한다.
 
-        실패 시 뉴스 이벤트 텍스트로 fallback하여 항상 결과를 반환한다.
+        판단 결과(direction/confidence/verdict)는 이미 확정되어 있으며,
+        LLM은 그 결과에 대한 설명 텍스트만 생성한다.
+
+        LLM 실패 시 뉴스 이벤트 텍스트로 rule-based fallback을 반환한다.
         """
-        pos_events_text = "\n".join(
-            f"  [{e['impact'].upper()}] {e['event']}"
-            for e in news_signal.get("positive_events", [])
-        ) or "  없음"
-        neg_events_text = "\n".join(
-            f"  [{e['impact'].upper()}] {e['event']}"
-            for e in news_signal.get("negative_events", [])
-        ) or "  없음"
-
-        dist = youtube_sentiment.get("sentiment_distribution", {})
-        bullish_kw = ", ".join(youtube_sentiment.get("bullish_keywords", [])[:5]) or "없음"
-        bearish_kw = ", ".join(youtube_sentiment.get("bearish_keywords", [])[:5]) or "없음"
+        pos_event_lines = "\n".join(
+            f"  - [{e.get('impact','?')}] {e.get('event','')}" for e in pos_events
+        ) or "  - 없음"
+        neg_event_lines = "\n".join(
+            f"  - [{e.get('impact','?')}] {e.get('event','')}" for e in neg_events
+        ) or "  - 없음"
 
         system_prompt = (
-            "당신은 투자 판단 설명 전문가입니다.\n"
-            "주어진 분석 결과를 바탕으로 투자 판단 근거와 리스크를 한국어로 생성하세요.\n"
-            "반드시 아래 JSON 형식으로만 응답하세요 (마크다운·코드블록 금지):\n"
-            "{\n"
-            '  "positive_reasons": ["긍정 판단 근거 1문장", ...],\n'
-            '  "negative_reasons": ["부정·주의 판단 근거 1문장", ...],\n'
-            '  "risk_factors":     ["리스크 요인 1문장", ...]\n'
-            "}"
+            "당신은 한국 주식 투자 분석 보조자입니다. "
+            "이미 확정된 투자 판단에 대해 근거 텍스트만 작성하세요. "
+            "반드시 JSON만 응답하고 마크다운·코드블록은 사용하지 마세요."
         )
+        user_prompt = f"""아래 데이터를 바탕으로 [{company}] 투자 판단 근거를 작성하세요.
 
-        user_prompt = (
-            f"종목: {company}\n"
-            f"사용자 의도: {intent}\n"
-            f"판단 방향: {direction.upper()} | 신뢰도: {confidence:.1%} | 의견: {verdict.upper()}\n\n"
-            f"[뉴스 긍정 이벤트]\n{pos_events_text}\n\n"
-            f"[뉴스 부정 이벤트]\n{neg_events_text}\n\n"
-            f"[YouTube 투자 심리]\n"
-            f"  감성 분포: 긍정={dist.get('positive', 0):.0%} | "
-            f"중립={dist.get('neutral', 0):.0%} | "
-            f"부정={dist.get('negative', 0):.0%}\n"
-            f"  강세 키워드: {bullish_kw}\n"
-            f"  약세 키워드: {bearish_kw}\n\n"
-            "위 데이터를 바탕으로 투자 판단 근거와 리스크 요인을 JSON으로 작성하세요."
-        )
+[이미 확정된 판단]
+- direction  : {direction} ({_DIRECTION_KO.get(direction, direction)})
+- confidence : {confidence:.3f}
+- verdict    : {verdict} ({_VERDICT_KO.get(verdict, verdict)})
+- news_score : {news_score:+.2f}
+- sentiment  : {sentiment_score:+.3f}
+
+[뉴스 긍정 이벤트]
+{pos_event_lines}
+
+[뉴스 부정 이벤트]
+{neg_event_lines}
+
+[뉴스 키워드] {', '.join(news_kws[:7]) or '없음'}
+[유튜브 상승 키워드] {', '.join(bull_kws[:5]) or '없음'}
+[유튜브 하락 키워드] {', '.join(bear_kws[:5]) or '없음'}
+[유튜브 감성 분포] 긍정={dist.get('positive',0):.1%} | 중립={dist.get('neutral',0):.1%} | 부정={dist.get('negative',0):.1%}
+[사용자 의도] {intent}
+
+아래 JSON 형식으로만 응답하세요:
+{{
+  "reasons": {{
+    "positive": ["긍정 근거 1", "긍정 근거 2", "긍정 근거 3"],
+    "negative": ["부정 근거 1", "부정 근거 2"]
+  }},
+  "risk_factors": ["리스크 1", "리스크 2", "리스크 3"],
+  "rationale": "전체 판단 근거 요약 (2~3문장)"
+}}
+
+작성 규칙:
+- reasons.positive/negative 는 각각 최대 5개, 뉴스 이벤트와 유튜브 신호를 근거로 사용
+- risk_factors 는 최대 4개
+- rationale 은 verdict 와 confidence 수준이 나온 이유를 자연스럽게 설명"""
 
         try:
             response = await self._llm.ainvoke([
@@ -270,25 +234,56 @@ class InvestmentDecisionAnalyzer:
                 ("human", user_prompt),
             ])
             raw = response.content.strip()
-            print(f"[DecisionAnalyzer] rationale LLM 응답 수신 | 길이={len(raw)}자")
+            print(f"[DecisionAnalyzer] LLM rationale 수신 | 길이={len(raw)}자")
             data = json.loads(raw)
-
-            reasons = {
-                "positive": [str(r) for r in data.get("positive_reasons", [])],
-                "negative": [str(r) for r in data.get("negative_reasons", [])],
+            reasons_raw = data.get("reasons", {})
+            return {
+                "reasons": DecisionReasons(
+                    positive=list(reasons_raw.get("positive", []))[:5],
+                    negative=list(reasons_raw.get("negative", []))[:5],
+                ),
+                "risk_factors": list(data.get("risk_factors", []))[:4],
+                "rationale": str(data.get("rationale", "")),
             }
-            risk_factors = [str(r) for r in data.get("risk_factors", [])]
-            return reasons, risk_factors
-
-        except Exception as exc:
-            print(f"[DecisionAnalyzer] rationale LLM 실패: {exc!r} — 이벤트 텍스트로 fallback")
-            reasons = {
-                "positive": [e["event"] for e in news_signal.get("positive_events", [])],
-                "negative": [e["event"] for e in news_signal.get("negative_events", [])],
+        except Exception as e:
+            print(f"[DecisionAnalyzer] LLM rationale 실패 → rule-based fallback: {e}")
+            traceback.print_exc()
+            # rule-based fallback: 이벤트 텍스트를 그대로 사용
+            return {
+                "reasons": DecisionReasons(
+                    positive=[e.get("event", "") for e in pos_events[:3]],
+                    negative=[e.get("event", "") for e in neg_events[:3]],
+                ),
+                "risk_factors": [e.get("event", "") for e in neg_events[:3]],
+                "rationale": (
+                    f"{company} 에 대한 뉴스 score={news_score:+.2f}, "
+                    f"감성점수={sentiment_score:+.3f} 기반으로 {verdict} 판단."
+                ),
             }
-            risk_factors = [
-                e["event"]
-                for e in news_signal.get("negative_events", [])
-                if e.get("impact") in ("high", "medium")
-            ]
-            return reasons, risk_factors
+
+    @staticmethod
+    def _print_decision(d: InvestmentDecision, company: str) -> None:
+        """최종 InvestmentDecision 을 보기 좋게 콘솔에 출력한다."""
+        verdict_ko = _VERDICT_KO.get(d["verdict"], d["verdict"])
+        direction_ko = _DIRECTION_KO.get(d["direction"], d["direction"])
+
+        print(
+            f"\n[DecisionAnalyzer] ══ 최종 투자 판단: {company} ══════════════\n"
+            f"  verdict    : {d['verdict'].upper()} ({verdict_ko})\n"
+            f"  direction  : {d['direction']} ({direction_ko})\n"
+            f"  confidence : {d['confidence']:.4f}  "
+            f"({'높음' if d['confidence'] > 0.7 else '중간' if d['confidence'] > 0.4 else '낮음'})\n"
+            f"  news_score : {d['news_score']:+.4f}\n"
+            f"  sent_score : {d['sentiment_score']:+.4f}\n"
+            f"\n  rationale  : {d['rationale']}\n"
+            f"\n  reasons (+):"
+        )
+        for r in d["reasons"]["positive"]:
+            print(f"    + {r}")
+        print(f"\n  reasons (-):")
+        for r in d["reasons"]["negative"]:
+            print(f"    - {r}")
+        print(f"\n  risk_factors:")
+        for r in d["risk_factors"]:
+            print(f"    ⚠ {r}")
+        print("  " + "═" * 52)

@@ -45,11 +45,9 @@ _SERIES_TABLE: dict[InvestmentInfoType, Tuple[str, str, str]] = {
         "미국 20년물 국채 금리 (20-Year Treasury Constant Maturity Rate, Daily, FRED)",
     ),
     # 원자재
-    InvestmentInfoType.OIL_PRICE: (
-        "DCOILWTICO",
-        "USD/bbl",
-        "WTI 원유 현물 가격 (Cushing OK WTI Spot Price FOB, Daily, FRED)",
-    ),
+    # OIL_PRICE(WTI) 는 FRED 의 DCOILWTICO(Cushing 물리 현물가) 가 수일~1주 발표 지연이 있고
+    # 최근 병목 구간엔 NYMEX 선물 대비 10 달러 이상 벌어져 "WTI" 통상 가격과 괴리가 큼.
+    # 시장에서 흔히 "WTI"라고 부르는 실시간 NYMEX 근월물 선물(`CL=F`) 을 Yahoo 로 폴백.
     # GOLD 는 FRED 공식 일간 시리즈 접근이 제한적이어서 Yahoo(`GC=F`) 로 폴백
     # 환율
     InvestmentInfoType.EXCHANGE_RATE: (
@@ -62,12 +60,9 @@ _SERIES_TABLE: dict[InvestmentInfoType, Tuple[str, str, str]] = {
         "JPY/USD",
         "달러/엔 환율 (Japanese Yen / U.S. Dollar, Daily, FRED)",
     ),
-    # 달러 인덱스 (Fed Broad, 일간)
-    InvestmentInfoType.DXY: (
-        "DTWEXBGS",
-        "index",
-        "미 연준 브로드 달러 인덱스 (Nominal Broad U.S. Dollar Index, Daily, FRED)",
-    ),
+    # 달러 인덱스 (DXY) 는 FRED 에 ICE DXY 공식 시리즈가 없음 (DTWEXM 은 2020년 discontinued,
+    # DTWEXBGS 는 Fed Broad Dollar Index 로 바스켓/기준연도가 다른 별개 지표).
+    # Yahoo Finance (`DX-Y.NYB`) 로 폴백.
     # 주요 지수
     InvestmentInfoType.VIX: (
         "VIXCLS",

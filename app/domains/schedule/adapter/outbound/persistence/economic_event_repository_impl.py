@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timezone
 from typing import List, Optional, Set
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.schedule.application.port.out.economic_event_repository_port import (
@@ -39,6 +39,12 @@ class EconomicEventRepositoryImpl(EconomicEventRepositoryPort):
         self._db.add_all(orms)
         await self._db.commit()
         return len(orms)
+
+    async def delete_by_source(self, source: str) -> int:
+        stmt = delete(EconomicEventOrm).where(EconomicEventOrm.source == source)
+        result = await self._db.execute(stmt)
+        await self._db.commit()
+        return int(result.rowcount or 0)
 
     async def find_by_source_key(
         self, source: str, source_event_id: str

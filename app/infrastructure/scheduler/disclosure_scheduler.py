@@ -13,6 +13,8 @@ from app.infrastructure.scheduler.disclosure_jobs import (
     job_seasonal_semiannual,
     job_seasonal_annual,
 )
+
+from app.infrastructure.scheduler.nasdaq_jobs import job_collect_nasdaq_bars
 from app.infrastructure.scheduler.macro_jobs import job_refresh_market_risk
 from app.infrastructure.scheduler.corp_earnings_jobs import job_refresh_corp_earnings
 
@@ -74,6 +76,17 @@ def create_disclosure_scheduler() -> AsyncIOScheduler:
         trigger=CronTrigger(hour=6, minute=0, timezone=KST),
         id="collect_news",
         name="Collect Naver news",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+
+    # Daily 07:00 KST — collect NASDAQ daily bars (미국 장마감 후)
+    scheduler.add_job(
+        job_collect_nasdaq_bars,
+        trigger=CronTrigger(hour=7, minute=0, timezone=KST),
+        id="collect_nasdaq_bars",
+        name="Collect NASDAQ daily OHLCV bars",
         replace_existing=True,
         misfire_grace_time=600,
     )

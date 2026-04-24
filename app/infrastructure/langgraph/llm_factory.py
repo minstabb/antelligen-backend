@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 
 from app.infrastructure.config.settings import get_settings
 
-_DEFAULT_MODEL = "gpt-4.1-nano"
+_DEFAULT_MODEL = "gpt-5-mini"
 
 
 @lru_cache(maxsize=8)

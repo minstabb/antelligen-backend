@@ -26,10 +26,24 @@ _SYMBOL_TABLE: dict[InvestmentInfoType, Tuple[str, str, str]] = {
         "index",
         "코스피 200 지수 (KOSPI 200, Daily, Yahoo Finance)",
     ),
+    # NYMEX WTI 근월물 선물. FRED 의 Cushing 현물가(DCOILWTICO)는 발표 지연·베이시스 확대로
+    # "시장 WTI 가격" 과 자주 괴리되므로 실시간성·시장 컨센서스가 높은 선물가를 사용.
+    InvestmentInfoType.OIL_PRICE: (
+        "CL=F",
+        "USD/bbl",
+        "WTI 원유 근월물 선물 (NYMEX Crude Oil Futures, Yahoo Finance)",
+    ),
     InvestmentInfoType.GOLD: (
         "GC=F",
         "USD/oz",
         "금 선물 근월물 (COMEX Gold Futures, Yahoo Finance)",
+    ),
+    # ICE US Dollar Index (DXY). FRED 는 Fed Broad Dollar(광의, 바스켓·기준연도 다름)만 제공하고
+    # 기존 DTWEXM(DXY 유사)은 2020년 discontinued 되어 Yahoo 의 ICE DXY 캐시 심볼을 사용.
+    InvestmentInfoType.DXY: (
+        "DX-Y.NYB",
+        "index",
+        "ICE 달러 인덱스 (U.S. Dollar Index Cash, 6개 통화 바스켓, Yahoo Finance)",
     ),
     # 발틱 운임지수(BDI) 는 Baltic Exchange 유료 데이터. BDRY ETF 가 BDI 에 연동된 공개 대리 지표.
     InvestmentInfoType.BALTIC_DRY_INDEX: (

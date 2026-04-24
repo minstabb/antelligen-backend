@@ -61,7 +61,9 @@ class Settings(BaseSettings):
     dart_api_key: str = ""
 
     # FRED (Federal Reserve Economic Data) — 금리·유가·환율 등 매크로 지표 조회
-    fred_api_key: str = "21bb94b6c925066afa9bd25197dd0714"
+    fred_api_key: str = ""
+
+    finnhub_api_key: str = ""
 
     model_config = {
         "env_file": ".env",
