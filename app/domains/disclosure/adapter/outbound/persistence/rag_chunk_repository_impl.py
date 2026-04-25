@@ -80,6 +80,65 @@ class RagChunkRepositoryImpl(RagChunkRepositoryPort):
             RagDocumentChunkMapper.to_entity(orm) for orm in result.scalars().all()
         ]
 
+    async def find_business_chunks_by_corp_code(
+        self,
+        corp_code: str,
+        limit: int = 5,
+    ) -> list[RagDocumentChunk]:
+        """사업보고서 본문 중 '사업의 내용' / 매출 구성 관련 청크 우선 반환.
+
+        키워드 매칭 우선순위:
+          1. section_title 또는 chunk_text 에 '사업의 내용' 포함
+          2. chunk_text 에 '매출' 또는 '매출액' 포함
+        """
+        keywords = ["사업의 내용", "매출액", "매출"]
+        like_clauses = " OR ".join(
+            f"chunk_text ILIKE :kw{i} OR COALESCE(section_title, '') ILIKE :kw{i}"
+            for i in range(len(keywords))
+        )
+        # report_document(사업/분기/반기보고서) 우선, 그 외도 fallback 허용
+        query = text(f"""
+            SELECT id, rcept_no, corp_code, disclosure_document_id, report_nm,
+                   document_type, section_title, chunk_index, chunk_text, chunk_hash,
+                   embedding, created_at, updated_at
+            FROM rag_document_chunks
+            WHERE corp_code = :corp_code
+              AND ({like_clauses})
+            ORDER BY
+                CASE WHEN document_type = 'report_document' THEN 0 ELSE 1 END,
+                created_at DESC
+            LIMIT :limit
+        """)
+        params: dict = {"corp_code": corp_code, "limit": limit}
+        for i, kw in enumerate(keywords):
+            params[f"kw{i}"] = f"%{kw}%"
+
+        try:
+            result = await self._db.execute(query, params)
+            rows = result.fetchall()
+        except Exception as e:
+            logger.warning("[RAG] business chunks 조회 실패 corp_code=%s: %s", corp_code, e)
+            return []
+
+        return [
+            RagDocumentChunk(
+                chunk_id=row.id,
+                rcept_no=row.rcept_no,
+                corp_code=row.corp_code,
+                disclosure_document_id=row.disclosure_document_id,
+                report_nm=row.report_nm,
+                document_type=row.document_type,
+                section_title=row.section_title,
+                chunk_index=row.chunk_index,
+                chunk_text=row.chunk_text,
+                chunk_hash=row.chunk_hash,
+                embedding=list(row.embedding) if row.embedding is not None else None,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ]
+
     async def search_similar(
         self,
         embedding: list[float],

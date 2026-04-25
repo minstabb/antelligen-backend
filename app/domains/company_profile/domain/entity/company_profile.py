@@ -27,6 +27,7 @@ class CompanyProfile:
         "K": "코스닥(KOSDAQ)",
         "N": "코넥스(KONEX)",
         "E": "기타",
+        "US": "미국 (NASDAQ/NYSE)",
     }
 
     def corp_cls_label(self) -> Optional[str]:
