@@ -170,6 +170,28 @@ def _dedupe_announcements(timeline: List[TimelineEvent]) -> List[TimelineEvent]:
 
     return others + kept_announcements
 
+
+def _dedupe_etf_timeline(events: List[TimelineEvent]) -> List[TimelineEvent]:
+    """ETF 분해 시 holding 이벤트와 ETF 자체 이벤트가 (date, title) 기준 중복되면 1건만 남긴다.
+
+    S2-7. SPY/QQQ 같은 ETF 는 상위 보유 종목별 CORPORATE/ANNOUNCEMENT 를 fan-out
+    수집한 뒤 ETF 자체 이벤트와 합치는데, 같은 일자·동일 제목으로 두 번 노출되는
+    경우가 있다. constituent_ticker 가 명시된 holding 이벤트를 우선 보존 — ETF 자체
+    이벤트는 집계라 holding 단위가 더 구체적이다.
+    """
+    seen: Dict[tuple, TimelineEvent] = {}
+    for e in events:
+        key = (e.date, e.category, e.title)
+        existing = seen.get(key)
+        if existing is None:
+            seen[key] = e
+            continue
+        # 둘 다 있을 때: constituent_ticker 명시된 쪽(holding) 우선
+        if existing.constituent_ticker is None and e.constituent_ticker is not None:
+            seen[key] = e
+    return list(seen.values())
+
+
 # ── 지수 → FRED 매크로 리전 매핑 ────────────────────────────────
 _INDEX_REGION: Dict[str, str] = {
     "^IXIC": "US",
@@ -1097,6 +1119,14 @@ class HistoryAgentUseCase:
             logger.info(
                 "[HistoryAgent]   └ ETF holdings 이벤트: %d건",
                 len(holdings_events),
+            )
+
+        before_dedupe = len(timeline)
+        timeline = _dedupe_etf_timeline(timeline)
+        if before_dedupe != len(timeline):
+            logger.info(
+                "[HistoryAgent]   └ ETF dedupe: %d → %d (holding 분해 + ETF 자체 이벤트 중복 제거)",
+                before_dedupe, len(timeline),
             )
 
         timeline.sort(key=lambda e: e.date, reverse=True)
