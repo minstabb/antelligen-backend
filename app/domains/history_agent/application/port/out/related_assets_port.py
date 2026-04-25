@@ -32,14 +32,30 @@ class MacroContextEvent:
 class RelatedAssetsPort(ABC):
     @abstractmethod
     async def fetch_significant_moves(
-        self, *, start_date: date, end_date: date, threshold_pct: float
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        threshold_pct: float,
+        top_k: Optional[int] = None,
     ) -> List[MacroContextEvent]:
-        """임계치를 넘은 일일 변동 이벤트. 실패 시 빈 리스트."""
+        """임계치를 넘은 일일 변동 이벤트. 실패 시 빈 리스트.
+
+        `top_k` 가 주어지면 |change_pct| 큰 순 상위 N건만 반환 (§13.4 B perf).
+        """
 
 
 class GprIndexPort(ABC):
     @abstractmethod
     async def fetch_mom_spikes(
-        self, *, start_date: date, end_date: date, mom_change_pct: float
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        mom_change_pct: float,
+        top_k: Optional[int] = None,
     ) -> List[MacroContextEvent]:
-        """전월 대비 GPR 지수가 mom_change_pct% 이상 상승한 달. 실패 시 빈 리스트."""
+        """전월 대비 GPR 지수가 mom_change_pct% 이상 상승한 달. 실패 시 빈 리스트.
+
+        `top_k` 가 주어지면 |change_pct| 큰 순 상위 N건만 반환 (§13.4 B perf).
+        """

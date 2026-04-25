@@ -80,7 +80,10 @@ class Settings(BaseSettings):
     # 영문 NEWS 제목을 한국어 1문장 요약으로 교체 (비용: 기사당 1회 LLM 호출)
     history_news_korean_summary_enabled: bool = True
     history_related_assets_threshold_pct: float = 2.0
+    history_related_assets_top_k: int = 100  # §13.4 B perf — |Δ%| 큰 순 상위 N건만 LLM 랭커로 전달
     history_gpr_mom_change_pct: float = 20.0
+    history_gpr_top_k: int = 50  # §13.4 B perf
+    history_fred_surprise_top_k: int = 100  # §13.4 B perf — FRED surprise 결과도 cap
     yfinance_retry_max_attempts: int = 3
     yfinance_retry_base_delay: float = 1.0
 

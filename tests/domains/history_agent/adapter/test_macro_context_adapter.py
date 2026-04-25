@@ -100,3 +100,109 @@ async def test_gpr_returns_empty_when_no_spike():
         mom_change_pct=20.0,
     )
     assert events == []
+
+
+# §13.4 B perf — top_k cap 검증
+@pytest.mark.asyncio
+async def test_related_assets_top_k_caps_largest_abs_changes():
+    # threshold 통과 후보 5개 — 변화율 -3, +5, -10, +2.55, +7
+    client = MagicMock()
+    client.fetch = AsyncMock(
+        return_value=[
+            {
+                "symbol": "^VIX",
+                "name": "VIX",
+                "bars": [
+                    {"date": "2026-01-01", "close": 10.0},
+                    {"date": "2026-01-02", "close": 9.7},      # -3.0%
+                    {"date": "2026-01-03", "close": 10.185},   # +5.0%
+                    {"date": "2026-01-04", "close": 9.1665},   # -10.0%
+                    {"date": "2026-01-05", "close": 9.4},      # +2.55%
+                    {"date": "2026-01-06", "close": 10.058},   # +7.0%
+                ],
+            }
+        ]
+    )
+    adapter = RelatedAssetsAdapter(client=client)
+    events = await adapter.fetch_significant_moves(
+        start_date=datetime.date(2026, 1, 1),
+        end_date=datetime.date(2026, 1, 31),
+        threshold_pct=2.0,
+        top_k=3,
+    )
+    # |Δ%| 큰 순: -10, +7, +5  → 3건
+    assert len(events) == 3
+    abs_changes = sorted([abs(e.change_pct or 0) for e in events], reverse=True)
+    assert abs_changes == pytest.approx([10.0, 7.0, 5.0], abs=0.05)
+
+
+@pytest.mark.asyncio
+async def test_related_assets_no_top_k_returns_all():
+    client = MagicMock()
+    client.fetch = AsyncMock(
+        return_value=[
+            {
+                "symbol": "^VIX",
+                "name": "VIX",
+                "bars": [
+                    {"date": "2026-01-01", "close": 10.0},
+                    {"date": "2026-01-02", "close": 9.7},     # -3.0%
+                    {"date": "2026-01-03", "close": 10.185},  # +5.0%
+                    {"date": "2026-01-04", "close": 9.1665},  # -10.0%
+                ],
+            }
+        ]
+    )
+    adapter = RelatedAssetsAdapter(client=client)
+    events = await adapter.fetch_significant_moves(
+        start_date=datetime.date(2026, 1, 1),
+        end_date=datetime.date(2026, 1, 31),
+        threshold_pct=2.0,
+        # top_k 미전달 — backward compat
+    )
+    assert len(events) == 3
+
+
+@pytest.mark.asyncio
+async def test_gpr_top_k_caps_largest_changes():
+    client = MagicMock()
+    client.fetch = AsyncMock(
+        return_value=[
+            {"date": "2026-01-01", "gpr": 100.0},
+            {"date": "2026-02-01", "gpr": 130.0},   # +30%
+            {"date": "2026-03-01", "gpr": 195.0},   # +50%
+            {"date": "2026-04-01", "gpr": 234.0},   # +20%
+            {"date": "2026-05-01", "gpr": 327.6},   # +40%
+        ]
+    )
+    adapter = GprIndexAdapter(client=client)
+    events = await adapter.fetch_mom_spikes(
+        start_date=datetime.date(2026, 1, 1),
+        end_date=datetime.date(2026, 5, 31),
+        mom_change_pct=20.0,
+        top_k=2,
+    )
+    # 4건 후보 (+30, +50, +20, +40) 중 큰 순 2개: +50, +40
+    assert len(events) == 2
+    changes = sorted([e.change_pct or 0 for e in events], reverse=True)
+    assert changes[0] == pytest.approx(50.0, abs=0.1)
+    assert changes[1] == pytest.approx(40.0, abs=0.1)
+
+
+@pytest.mark.asyncio
+async def test_gpr_no_top_k_returns_all():
+    client = MagicMock()
+    client.fetch = AsyncMock(
+        return_value=[
+            {"date": "2026-01-01", "gpr": 100.0},
+            {"date": "2026-02-01", "gpr": 130.0},   # +30%
+            {"date": "2026-03-01", "gpr": 195.0},   # +50%
+        ]
+    )
+    adapter = GprIndexAdapter(client=client)
+    events = await adapter.fetch_mom_spikes(
+        start_date=datetime.date(2026, 1, 1),
+        end_date=datetime.date(2026, 3, 31),
+        mom_change_pct=20.0,
+    )
+    assert len(events) == 2

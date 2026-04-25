@@ -42,6 +42,7 @@ class RelatedAssetsAdapter(RelatedAssetsPort):
         start_date: datetime.date,
         end_date: datetime.date,
         threshold_pct: float,
+        top_k: Optional[int] = None,
     ) -> List[MacroContextEvent]:
         raw = await self._client.fetch(start_date=start_date, end_date=end_date)
         if not raw:
@@ -83,6 +84,9 @@ class RelatedAssetsAdapter(RelatedAssetsPort):
                         )
                 prev_close = close
                 prev_date = bar_date
+        if top_k is not None and len(events) > top_k:
+            events.sort(key=lambda e: abs(e.change_pct or 0), reverse=True)
+            events = events[:top_k]
         return events
 
 
@@ -96,6 +100,7 @@ class GprIndexAdapter(GprIndexPort):
         start_date: datetime.date,
         end_date: datetime.date,
         mom_change_pct: float,
+        top_k: Optional[int] = None,
     ) -> List[MacroContextEvent]:
         raw = await self._client.fetch(start_date=start_date, end_date=end_date)
         if not raw:
@@ -126,4 +131,7 @@ class GprIndexAdapter(GprIndexPort):
                         )
                     )
             prev_gpr = gpr
+        if top_k is not None and len(events) > top_k:
+            events.sort(key=lambda e: abs(e.change_pct or 0), reverse=True)
+            events = events[:top_k]
         return events
