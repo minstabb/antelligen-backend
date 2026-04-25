@@ -69,7 +69,6 @@ def _make_usecase(enrichment_repo) -> HistoryAgentUseCase:
         redis=redis_mock,
         enrichment_repo=enrichment_repo,
         asset_type_port=MagicMock(),
-        fred_macro_port=MagicMock(),
     )
 
 
@@ -242,7 +241,6 @@ async def test_no_llm_title_call_when_enrich_titles_false():
         redis=redis_mock,
         enrichment_repo=repo,
         asset_type_port=asset_type_mock,
-        fred_macro_port=MagicMock(),
     )
 
     _module = "app.domains.history_agent.application.usecase.history_agent_usecase"
@@ -289,7 +287,6 @@ async def test_redis_cache_hit_skips_db_query():
         redis=redis_mock,
         enrichment_repo=repo,
         asset_type_port=asset_type_mock,
-        fred_macro_port=MagicMock(),
     )
 
     result = await usecase.execute(ticker=_TICKER, period="1M")

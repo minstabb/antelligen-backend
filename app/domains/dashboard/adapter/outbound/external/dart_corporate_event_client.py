@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 
-# (키워드, 이벤트 타입) — 앞에 있을수록 우선 매칭
+# 시점이 명확한 사건성 키워드만 유지. 배당(연속)·실적보고서(분기 반복)·임원변동(ANNOUNCEMENT 로 이전) 제외.
 _KEYWORD_MAP: list[tuple[str, CorporateEventType]] = [
     ("자기주식소각", CorporateEventType.BUYBACK_CANCEL),
     ("자기주식취득", CorporateEventType.BUYBACK),
@@ -19,16 +19,6 @@ _KEYWORD_MAP: list[tuple[str, CorporateEventType]] = [
     ("자기주식 취득", CorporateEventType.BUYBACK),
     ("자기주식", CorporateEventType.BUYBACK),
     ("유상증자", CorporateEventType.RIGHTS_OFFERING),
-    ("현금배당", CorporateEventType.DIVIDEND),
-    ("주식배당", CorporateEventType.DIVIDEND),
-    ("배당", CorporateEventType.DIVIDEND),
-    ("임원ㆍ주요주주", CorporateEventType.MANAGEMENT_CHANGE),
-    ("임원·주요주주", CorporateEventType.MANAGEMENT_CHANGE),
-    ("임원변동", CorporateEventType.MANAGEMENT_CHANGE),
-    ("임원", CorporateEventType.MANAGEMENT_CHANGE),
-    ("사업보고서", CorporateEventType.EARNINGS),
-    ("분기보고서", CorporateEventType.EARNINGS),
-    ("반기보고서", CorporateEventType.EARNINGS),
 ]
 
 

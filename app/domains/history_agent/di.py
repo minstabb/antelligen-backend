@@ -35,14 +35,8 @@ from app.domains.dashboard.adapter.outbound.external.yahoo_finance_etf_holdings_
 from app.domains.dashboard.adapter.outbound.external.yahoo_finance_stock_client import (
     YahooFinanceStockClient,
 )
-from app.domains.history_agent.adapter.outbound.composite_news_provider import (
-    CompositeNewsProvider,
-)
 from app.domains.history_agent.adapter.outbound.curated_macro_events_adapter import (
     CuratedMacroEventsAdapter,
-)
-from app.domains.history_agent.adapter.outbound.finnhub_fundamentals_adapter import (
-    FinnhubFundamentalsAdapter,
 )
 from app.domains.history_agent.adapter.outbound.macro_context_adapter import (
     GprIndexAdapter,
@@ -106,16 +100,6 @@ def _etf_holdings_port() -> YahooFinanceEtfHoldingsClient:
 
 
 @lru_cache(maxsize=1)
-def _news_port() -> CompositeNewsProvider:
-    return CompositeNewsProvider()
-
-
-@lru_cache(maxsize=1)
-def _fundamentals_port() -> FinnhubFundamentalsAdapter:
-    return FinnhubFundamentalsAdapter()
-
-
-@lru_cache(maxsize=1)
 def _related_assets_port() -> RelatedAssetsAdapter:
     return RelatedAssetsAdapter()
 
@@ -153,11 +137,8 @@ def get_history_agent_usecase(
         redis=redis,
         enrichment_repo=enrichment_repo,
         asset_type_port=cached_asset_type_port,
-        fred_macro_port=_fred_macro_port(),
         collect_macro_events_uc=collect_macro_uc,
         etf_holdings_port=_etf_holdings_port(),
-        news_port=_news_port(),
-        fundamentals_port=_fundamentals_port(),
         related_assets_port=_related_assets_port(),
         gpr_index_port=_gpr_index_port(),
     )

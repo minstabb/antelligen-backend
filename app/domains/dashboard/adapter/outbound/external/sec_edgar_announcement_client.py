@@ -30,13 +30,15 @@ _ITEM_PATTERN = re.compile(r"(?i)\bitem\s+(\d+\.\d+)\b")
 # 첨부파일 항목 — 본문 없음, 추출 대상 제외
 _EXHIBIT_ITEMS = {"9.01", "9.02"}
 
-# 8-K 아이템 코드 → 공시 타입
+# 8-K 아이템 코드 → 공시 타입. 사용자 분류 기준(시점 명확 사건) 으로 5.02/4.02/3.01 세분화.
 _ITEM_TYPE_MAP: list[tuple[str, AnnouncementEventType]] = [
-    ("2.01", AnnouncementEventType.MERGER_ACQUISITION),
-    ("1.01", AnnouncementEventType.CONTRACT),
-    ("1.02", AnnouncementEventType.CONTRACT),
-    ("8.01", AnnouncementEventType.MAJOR_EVENT),
-    ("5.02", AnnouncementEventType.MAJOR_EVENT),
+    ("2.01", AnnouncementEventType.MERGER_ACQUISITION),  # Completion of Acquisition or Disposition
+    ("1.01", AnnouncementEventType.CONTRACT),            # Material Definitive Agreement
+    ("1.02", AnnouncementEventType.CONTRACT),            # Termination of Material Agreement
+    ("5.02", AnnouncementEventType.MANAGEMENT_CHANGE),   # Departure/Election of Directors/Officers
+    ("4.02", AnnouncementEventType.ACCOUNTING_ISSUE),    # Non-Reliance on Previous Financials
+    ("3.01", AnnouncementEventType.CRISIS),              # Notice of Delisting / Failure to Satisfy Listing Rule
+    ("8.01", AnnouncementEventType.MAJOR_EVENT),         # Other Events (fallback)
 ]
 
 _TITLE_KEYWORD_MAP: list[tuple[str, AnnouncementEventType]] = [
@@ -44,6 +46,23 @@ _TITLE_KEYWORD_MAP: list[tuple[str, AnnouncementEventType]] = [
     ("acquisition", AnnouncementEventType.MERGER_ACQUISITION),
     ("definitive agreement", AnnouncementEventType.MERGER_ACQUISITION),
     ("business combination", AnnouncementEventType.MERGER_ACQUISITION),
+    ("recall", AnnouncementEventType.CRISIS),
+    ("delisting", AnnouncementEventType.CRISIS),
+    ("bankruptcy", AnnouncementEventType.CRISIS),
+    ("lawsuit", AnnouncementEventType.REGULATORY),
+    ("settlement", AnnouncementEventType.REGULATORY),
+    ("subpoena", AnnouncementEventType.REGULATORY),
+    ("investigation", AnnouncementEventType.REGULATORY),
+    ("sec charges", AnnouncementEventType.REGULATORY),
+    ("ceo", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("chief executive", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("resignation", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("appointment", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("restatement", AnnouncementEventType.ACCOUNTING_ISSUE),
+    ("non-reliance", AnnouncementEventType.ACCOUNTING_ISSUE),
+    ("launch", AnnouncementEventType.PRODUCT_LAUNCH),
+    ("unveil", AnnouncementEventType.PRODUCT_LAUNCH),
+    ("introduces", AnnouncementEventType.PRODUCT_LAUNCH),
     ("agreement", AnnouncementEventType.CONTRACT),
     ("contract", AnnouncementEventType.CONTRACT),
     ("partnership", AnnouncementEventType.CONTRACT),

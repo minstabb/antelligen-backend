@@ -59,7 +59,6 @@ async def test_collect_holdings_events_tags_constituent_and_weight():
         redis=redis_mock,
         enrichment_repo=repo,
         asset_type_port=MagicMock(),
-        fred_macro_port=MagicMock(),
         etf_holdings_port=holdings_port,
     )
 

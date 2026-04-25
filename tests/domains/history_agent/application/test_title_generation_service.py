@@ -25,7 +25,12 @@ def test_fallback_title_contains_macro_from_series_config():
 
 def test_fallback_title_contains_non_macro():
     assert FALLBACK_TITLE["SURGE"] == "급등"
-    assert FALLBACK_TITLE["EARNINGS"] == "실적 발표"
+    assert FALLBACK_TITLE["MERGER_ACQUISITION"] == "합병·인수"
+    assert FALLBACK_TITLE["MANAGEMENT_CHANGE"] == "경영진 변경"
+    assert FALLBACK_TITLE["ACCOUNTING_ISSUE"] == "회계 이슈"
+    assert FALLBACK_TITLE["REGULATORY"] == "규제·소송"
+    assert FALLBACK_TITLE["PRODUCT_LAUNCH"] == "신제품·신기술"
+    assert FALLBACK_TITLE["CRISIS"] == "위기 사건"
 
 
 def test_default_fallback_uses_label_when_type_unknown():

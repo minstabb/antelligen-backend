@@ -18,7 +18,7 @@ DART_FILING_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 # 주요사항보고서 공시 타입 코드
 _PBLNTF_TY_MAJOR = "B"
 
-# 공시명 키워드 → 공시 타입 (우선순위 순)
+# 공시명 키워드 → 공시 타입 (우선순위 순). 사용자 분류 기준(시점 명확 사건) 5종 추가.
 _KEYWORD_MAP: list[tuple[str, AnnouncementEventType]] = [
     ("합병", AnnouncementEventType.MERGER_ACQUISITION),
     ("인수", AnnouncementEventType.MERGER_ACQUISITION),
@@ -27,6 +27,22 @@ _KEYWORD_MAP: list[tuple[str, AnnouncementEventType]] = [
     ("주식교환", AnnouncementEventType.MERGER_ACQUISITION),
     ("주식이전", AnnouncementEventType.MERGER_ACQUISITION),
     ("분할합병", AnnouncementEventType.MERGER_ACQUISITION),
+    ("상장폐지", AnnouncementEventType.CRISIS),
+    ("거래정지", AnnouncementEventType.CRISIS),
+    ("리콜", AnnouncementEventType.CRISIS),
+    ("회계감사 부적정", AnnouncementEventType.ACCOUNTING_ISSUE),
+    ("회계처리위반", AnnouncementEventType.ACCOUNTING_ISSUE),
+    ("재무제표 정정", AnnouncementEventType.ACCOUNTING_ISSUE),
+    ("내부회계", AnnouncementEventType.ACCOUNTING_ISSUE),
+    ("소송", AnnouncementEventType.REGULATORY),
+    ("제재", AnnouncementEventType.REGULATORY),
+    ("과징금", AnnouncementEventType.REGULATORY),
+    ("조사", AnnouncementEventType.REGULATORY),
+    ("대표이사 변경", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("임원ㆍ주요주주", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("임원·주요주주", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("임원변동", AnnouncementEventType.MANAGEMENT_CHANGE),
+    ("임원", AnnouncementEventType.MANAGEMENT_CHANGE),
     ("업무협약", AnnouncementEventType.CONTRACT),
     ("MOU", AnnouncementEventType.CONTRACT),
     ("계약", AnnouncementEventType.CONTRACT),
