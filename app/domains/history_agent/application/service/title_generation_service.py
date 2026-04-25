@@ -1,9 +1,11 @@
 import asyncio
+import hashlib
 import json
 import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+import redis.asyncio as aioredis
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.domains.dashboard.application.usecase.get_economic_events_usecase import (
@@ -310,18 +312,81 @@ async def enrich_other_titles(timeline: List[TimelineEvent]) -> None:
     logger.info("[TitleService] ✦ CORPORATE/ANNOUNCEMENT 타이틀 생성 완료")
 
 
-async def enrich_macro_titles(timeline: List[TimelineEvent]) -> None:
-    """MACRO 이벤트 타이틀을 생성한다."""
+_MACRO_TITLE_CACHE_VERSION = "v1"
+_MACRO_TITLE_CACHE_TTL_SEC = 90 * 24 * 60 * 60  # 90 days
+
+
+def _macro_title_cache_key(event: TimelineEvent) -> str:
+    """MACRO 이벤트의 안정적 캐시 키. (type, detail) 으로 fingerprint."""
+    fp = f"{event.type}|{event.detail}"
+    h = hashlib.sha256(fp.encode()).hexdigest()[:16]
+    return f"macro_title:{_MACRO_TITLE_CACHE_VERSION}:{h}"
+
+
+async def enrich_macro_titles(
+    timeline: List[TimelineEvent],
+    redis: Optional[aioredis.Redis] = None,
+) -> None:
+    """MACRO 이벤트 타이틀을 생성한다.
+
+    §13.4 B follow-up: Redis 캐시(macro_title:v1:{sha256(type|detail)[:16]})
+    로 fallback 아닌 결과 영구 보존. 동일 매크로 이벤트(같은 type+detail) 재호출
+    시 LLM 우회. TTL 90일. 실패(fallback) 결과는 캐시 미저장 — 다음 호출에서 재시도.
+    """
     candidates = [e for e in timeline if e.category == "MACRO" and is_fallback_title(e)]
     if not candidates:
         return
 
-    logger.info("[TitleService] ✦ MACRO 타이틀 생성 시작: %d건", len(candidates))
+    cache_keys = [_macro_title_cache_key(e) for e in candidates]
+    cached_values: List[Optional[bytes]] = []
+    if redis is not None:
+        try:
+            cached_values = await redis.mget(cache_keys)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[TitleService] MACRO 캐시 mget 실패 — miss 로 진행: %s", exc)
+            cached_values = [None] * len(candidates)
+    else:
+        cached_values = [None] * len(candidates)
+
+    miss_candidates: List[TimelineEvent] = []
+    miss_keys: List[str] = []
+    hit_count = 0
+    for event, cached, key in zip(candidates, cached_values, cache_keys):
+        if cached is not None:
+            title = cached.decode() if isinstance(cached, (bytes, bytearray)) else str(cached)
+            event.title = title
+            hit_count += 1
+        else:
+            miss_candidates.append(event)
+            miss_keys.append(key)
+
+    if not miss_candidates:
+        logger.info("[TitleService] ✦ MACRO 타이틀 — 전체 캐시 적중: %d건", hit_count)
+        return
+
+    logger.info(
+        "[TitleService] ✦ MACRO 타이틀 생성 시작: %d건 (cache hit=%d, miss=%d)",
+        len(candidates), hit_count, len(miss_candidates),
+    )
 
     def build_line(e: TimelineEvent) -> str:
         return f"type={e.type} detail={e.detail}"
 
-    titles = await batch_titles(candidates, MACRO_TITLE_SYSTEM, build_line)
-    for event, title in zip(candidates, titles):
+    titles = await batch_titles(miss_candidates, MACRO_TITLE_SYSTEM, build_line)
+    save_pairs: List[tuple[str, str]] = []
+    for event, title, key in zip(miss_candidates, titles, miss_keys):
         event.title = title
+        # fallback 은 저장하지 않음 — 다음 호출에서 LLM 재시도 기회 보존
+        if title and not is_fallback_title(event):
+            save_pairs.append((key, title))
+
+    if redis is not None and save_pairs:
+        try:
+            async with redis.pipeline(transaction=False) as pipe:
+                for key, title in save_pairs:
+                    pipe.setex(key, _MACRO_TITLE_CACHE_TTL_SEC, title)
+                await pipe.execute()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[TitleService] MACRO 캐시 저장 실패 (graceful): %s", exc)
+
     logger.info("[TitleService] ✦ MACRO 타이틀 생성 완료: %d건", len(candidates))

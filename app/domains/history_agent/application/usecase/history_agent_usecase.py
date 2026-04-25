@@ -957,7 +957,7 @@ class HistoryAgentUseCase:
         await _notify("title_gen", "AI 타이틀 생성 중...", 70)
         if enrich_titles:
             await asyncio.gather(
-                enrich_macro_titles(timeline),
+                enrich_macro_titles(timeline, redis=self._redis),
                 _enrich_news_details(timeline, redis=self._redis),
             )
         else:
@@ -1046,7 +1046,7 @@ class HistoryAgentUseCase:
         await _notify("title_gen", "AI 타이틀 생성 중...", 70)
         if enrich_titles:
             await asyncio.gather(
-                enrich_macro_titles(timeline),
+                enrich_macro_titles(timeline, redis=self._redis),
                 enrich_other_titles(timeline),
                 _enrich_announcement_details(timeline),
                 _enrich_news_details(timeline, redis=self._redis),
