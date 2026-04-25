@@ -52,6 +52,53 @@ _TITLE_KEYWORD_MAP: list[tuple[str, AnnouncementEventType]] = [
 
 _cik_cache: dict[str, str] = {}
 
+# Yahoo Finance 형태의 non-US ticker suffix 목록. SEC EDGAR는 US 상장 종목만 커버하므로
+# 조기 반환해 불필요한 network I/O와 로그 노이즈("CIK 조회 실패") 제거 (S2-6).
+# - KS/KQ: 한국 KOSPI/KOSDAQ
+# - T: 일본 Tokyo, HK: 홍콩, SS/SZ: 상해/심천, L: 런던
+# - PA: 파리, DE: 독일 Xetra, TO: 토론토, AX: 호주 ASX
+_NON_US_TICKER_SUFFIXES = (
+    ".KS", ".KQ", ".T", ".HK", ".SS", ".SZ", ".L", ".PA", ".DE", ".TO", ".AX",
+)
+
+
+def _is_non_us_ticker(ticker: str) -> bool:
+    """Yahoo Finance 형식의 non-US ticker 판별.
+
+    - `^` prefix: 지수 (^IXIC, ^GSPC, ^VIX, ^TNX, ...)
+    - `.XX` suffix: 각 국가별 거래소
+    """
+    upper = ticker.upper()
+    if upper.startswith("^"):
+        return True
+    return upper.endswith(_NON_US_TICKER_SUFFIXES)
+
+# company_tickers.json은 약 10MB에 가까운 SEC 전역 공개 데이터.
+# ticker별 조회마다 재다운로드하면 SEC에서 429(Too Many Requests)로 밴한다.
+# 모듈 전역 한 번만 fetch하도록 single-flight 락 + 캐시.
+_TICKERS_CACHE: dict[str, object] = {"data": None}
+_TICKERS_LOCK = asyncio.Lock()
+# 최근 SEC 429 응답 시각. 60s 이내 재요청은 short-circuit.
+_SEC_429_BACKOFF_SECONDS = 60.0
+_SEC_429_LAST_TS: dict[str, float] = {"ts": 0.0}
+
+# SEC EDGAR fair-use 정책: 초당 10req. 동시성 5로 제한해 burst 방지.
+# ETF holdings 병렬 fetch(SPY/QQQ 등) 시 ~30종목 × 5문서 = 150 요청이 동시에 발사되며
+# 실측 결과 단일 초에 228건 429 수신됨. 전역 semaphore로 throttle.
+# §17 S1-5: semaphore만으로는 round-trip이 빠를 때 burst 방지 불충분 → 각 요청 직후
+# 최소 대기 간격을 추가. slot당 실효 rate = 1 / _SEC_MIN_INTERVAL ≈ 9 req/s.
+_SEC_CONCURRENCY_LIMIT = 5
+_SEC_MIN_INTERVAL = 0.11
+_sec_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _get_sec_semaphore() -> asyncio.Semaphore:
+    """Lazy-init module-level semaphore. 이벤트 루프 바인딩 시점 지연."""
+    global _sec_semaphore
+    if _sec_semaphore is None:
+        _sec_semaphore = asyncio.Semaphore(_SEC_CONCURRENCY_LIMIT)
+    return _sec_semaphore
+
 
 def _primary_item_code(items_str: str) -> str:
     """items_str(예: '5.02' 또는 '1.01, 9.01')에서 첨부파일 외 첫 번째 Item 코드를 반환한다."""
@@ -132,6 +179,10 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
         start_date: date,
         end_date: date,
     ) -> List[AnnouncementEvent]:
+        # S2-6: non-US ticker는 SEC 커버리지 밖이므로 진입 단계에서 skip.
+        # WARNING 로그도 남기지 않음 — 매 호출 반복되는 정상 시그널이므로 노이즈.
+        if _is_non_us_ticker(ticker):
+            return []
         try:
             cik = await self._get_cik(ticker)
             if not cik:
@@ -144,13 +195,19 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
 
     async def _get_cik(self, ticker: str) -> Optional[str]:
         upper = ticker.upper()
+
+        # S2-6: non-US ticker는 SEC EDGAR 커버리지 밖이므로 조기 반환.
+        # `^IXIC`/`.KS`/`.KQ` 등이 매 호출마다 company_tickers.json을 조회하며
+        # 로그에 "CIK 조회 실패" 수백 건을 남기던 문제 해소.
+        if _is_non_us_ticker(upper):
+            return None
+
         if upper in _cik_cache:
             return _cik_cache[upper]
 
-        async with httpx.AsyncClient(timeout=15.0, headers={"User-Agent": _USER_AGENT}) as client:
-            resp = await client.get(_TICKERS_URL)
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._load_tickers_json()
+        if data is None:
+            return None
 
         for entry in data.values():
             if entry.get("ticker", "").upper() == upper:
@@ -160,6 +217,45 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
                 return cik
 
         return None
+
+    async def _load_tickers_json(self) -> Optional[dict]:
+        """company_tickers.json을 모듈 전역 1회만 다운로드한다.
+
+        - 동시 요청은 single-flight lock으로 직렬화
+        - SEC 429 수신 이후 60초는 short-circuit하여 추가 호출로 상황 악화 금지
+        """
+        if _TICKERS_CACHE["data"] is not None:
+            return _TICKERS_CACHE["data"]  # type: ignore[return-value]
+
+        now = asyncio.get_event_loop().time()
+        if now - _SEC_429_LAST_TS["ts"] < _SEC_429_BACKOFF_SECONDS:
+            logger.info("[SecEdgar] 최근 429 → tickers.json fetch short-circuit")
+            return None
+
+        async with _TICKERS_LOCK:
+            if _TICKERS_CACHE["data"] is not None:
+                return _TICKERS_CACHE["data"]  # type: ignore[return-value]
+            try:
+                async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": _USER_AGENT}) as client:
+                    async with _get_sec_semaphore():
+                        resp = await client.get(_TICKERS_URL)
+                        await asyncio.sleep(_SEC_MIN_INTERVAL)
+                if resp.status_code == 429:
+                    _SEC_429_LAST_TS["ts"] = now
+                    retry_after = resp.headers.get("Retry-After")
+                    logger.warning(
+                        "[SecEdgar] 429 수신 — 60s 동안 SEC 호출 우회. Retry-After=%s",
+                        retry_after,
+                    )
+                    return None
+                resp.raise_for_status()
+                data = resp.json()
+                _TICKERS_CACHE["data"] = data
+                logger.info("[SecEdgar] tickers.json 로드: %d건", len(data))
+                return data
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[SecEdgar] tickers.json 로드 실패: %s", exc)
+                return None
 
     async def _fetch_doc_body(
         self,
@@ -178,7 +274,9 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
             doc=primary_doc,
         )
         try:
-            resp = await client.get(url, timeout=_DOC_FETCH_TIMEOUT)
+            async with _get_sec_semaphore():
+                resp = await client.get(url, timeout=_DOC_FETCH_TIMEOUT)
+                await asyncio.sleep(_SEC_MIN_INTERVAL)
             resp.raise_for_status()
             target_item = _primary_item_code(items_str)
             return _extract_item_body(resp.text, target_item)
@@ -197,7 +295,9 @@ class SecEdgarAnnouncementClient(SecEdgarAnnouncementPort):
             timeout=30.0,
             headers={"User-Agent": _USER_AGENT},
         ) as client:
-            resp = await client.get(_SUBMISSIONS_URL.format(cik=cik))
+            async with _get_sec_semaphore():
+                resp = await client.get(_SUBMISSIONS_URL.format(cik=cik))
+                await asyncio.sleep(_SEC_MIN_INTERVAL)
             resp.raise_for_status()
             data = resp.json()
 

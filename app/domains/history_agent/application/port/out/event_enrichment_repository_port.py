@@ -18,3 +18,7 @@ class EventEnrichmentRepositoryPort(ABC):
     async def upsert_bulk(self, enrichments: List[EventEnrichment]) -> int:
         """enrichment 결과를 upsert한다. 저장된 건수를 반환한다."""
         pass
+
+    async def rollback(self) -> None:
+        """세션이 aborted 상태일 때 복구용. 기본 구현은 no-op."""
+        return None

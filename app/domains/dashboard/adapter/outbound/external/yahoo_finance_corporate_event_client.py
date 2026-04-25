@@ -1,16 +1,17 @@
-import asyncio
 import logging
+from functools import partial
 from typing import List
 
 import yfinance as yf
 
+from app.domains.dashboard.adapter.outbound.external._yfinance_retry import (
+    yfinance_call_with_retry,
+)
 from app.domains.dashboard.application.port.out.yfinance_corporate_event_port import (
     YahooFinanceCorporateEventPort,
 )
 from app.domains.dashboard.domain.entity.corporate_event import CorporateEvent, CorporateEventType
-from app.domains.dashboard.adapter.outbound.external.yahoo_finance_stock_client import (
-    _to_yfinance_ticker,
-)
+from app.infrastructure.external.yahoo_ticker import normalize_yfinance_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +20,17 @@ class YahooFinanceCorporateEventClient(YahooFinanceCorporateEventPort):
 
     async def fetch_corporate_events(self, ticker: str) -> List[CorporateEvent]:
         try:
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self._fetch_sync, ticker)
+            return await yfinance_call_with_retry(
+                partial(self._fetch_sync, ticker),
+                logger_prefix=f"YahooFinanceCorporateEvent:{ticker}",
+            )
         except Exception as e:
             logger.error("[YahooFinanceCorporateEvent] 오류 (ticker=%s): %s", ticker, e)
             return []
 
     def _fetch_sync(self, ticker: str) -> List[CorporateEvent]:
         logger.info("[YahooFinanceCorporateEvent] %s 이벤트 수집 시작", ticker)
-        t = yf.Ticker(_to_yfinance_ticker(ticker))
+        t = yf.Ticker(normalize_yfinance_ticker(ticker))
         events: List[CorporateEvent] = []
 
         events.extend(self._parse_dividends(t))

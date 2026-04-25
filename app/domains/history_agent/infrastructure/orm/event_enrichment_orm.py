@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, String, Text, DateTime, UniqueConstraint
+from sqlalchemy import Date, Float, String, Text, DateTime, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,5 +23,6 @@ class EventEnrichmentOrm(Base):
     detail_hash: Mapped[str] = mapped_column(String(16), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     causality: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    importance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)

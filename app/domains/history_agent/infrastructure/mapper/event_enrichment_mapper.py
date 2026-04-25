@@ -14,6 +14,7 @@ class EventEnrichmentMapper:
             detail_hash=orm.detail_hash,
             title=orm.title,
             causality=orm.causality,
+            importance_score=orm.importance_score,
             created_at=orm.created_at,
             updated_at=orm.updated_at,
         )
@@ -27,4 +28,5 @@ class EventEnrichmentMapper:
             detail_hash=entity.detail_hash,
             title=entity.title,
             causality=entity.causality,
+            importance_score=entity.importance_score,
         )

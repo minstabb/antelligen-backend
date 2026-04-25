@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "message": "success",
+  "data": {
+    "ticker": "005930",
+    "period": "1M",
+    "count": 0,
+    "events": [],
+    "is_etf": false,
+    "asset_type": "UNKNOWN",
+    "region": null
+  }
+}

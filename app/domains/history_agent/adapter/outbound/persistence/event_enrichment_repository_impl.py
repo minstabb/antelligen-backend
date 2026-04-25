@@ -49,6 +49,7 @@ class EventEnrichmentRepositoryImpl(EventEnrichmentRepositoryPort):
                 "detail_hash": e.detail_hash,
                 "title": e.title,
                 "causality": e.causality,
+                "importance_score": e.importance_score,
             }
             for e in enrichments
         ]
@@ -62,6 +63,7 @@ class EventEnrichmentRepositoryImpl(EventEnrichmentRepositoryPort):
                 set_={
                     "title": excluded.title,
                     "causality": excluded.causality,
+                    "importance_score": excluded.importance_score,
                     "updated_at": excluded.updated_at,
                 },
             )
@@ -71,3 +73,11 @@ class EventEnrichmentRepositoryImpl(EventEnrichmentRepositoryPort):
         result = await self._db.execute(stmt)
         await self._db.commit()
         return len(result.fetchall())
+
+    async def rollback(self) -> None:
+        """세션이 aborted 상태에서 후속 쿼리를 살리기 위한 명시적 롤백."""
+        try:
+            await self._db.rollback()
+        except Exception:  # noqa: BLE001
+            # 세션이 이미 닫혔거나 connection 수준 이슈는 호출부가 새 세션을 받을 때 복구된다.
+            pass

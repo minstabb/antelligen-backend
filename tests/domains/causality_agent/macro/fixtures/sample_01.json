@@ -1,0 +1,19 @@
+{
+  "index_ticker": "^IXIC",
+  "event": {
+    "date": "2024-09-18",
+    "type": "SURGE",
+    "change_pct": 2.1,
+    "title": "연준 금리 인하"
+  },
+  "context_macro": [
+    {
+      "date": "2024-09-18",
+      "type": "INTEREST_RATE",
+      "change_pct": -0.5,
+      "title": "기준금리 50bp 인하"
+    }
+  ],
+  "expected_keywords": ["금리", "인하", "완화"],
+  "unacceptable_keywords": ["실업률", "유가"]
+}

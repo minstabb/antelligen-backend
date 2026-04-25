@@ -1,0 +1,213 @@
+[
+  {
+    "date": "2008-09-15",
+    "event_type": "CRISIS",
+    "region": "GLOBAL",
+    "title": "리먼 브라더스 파산",
+    "detail": "투자은행 Lehman Brothers가 Chapter 11을 신청하며 글로벌 금융위기의 도화선이 됨. S&P500 -4.7%, VIX 24→31 급등.",
+    "tags": ["crisis", "banking", "bankruptcy"],
+    "importance_score": 1.0,
+    "source_url": "https://en.wikipedia.org/wiki/Bankruptcy_of_Lehman_Brothers"
+  },
+  {
+    "date": "2008-10-03",
+    "event_type": "POLICY",
+    "region": "US",
+    "title": "TARP 7000억 달러 구제 법안 통과",
+    "detail": "Emergency Economic Stabilization Act 서명. 부실자산 구제 프로그램(TARP) 7천억 달러 승인.",
+    "tags": ["policy", "fiscal", "crisis-response"],
+    "importance_score": 0.95,
+    "source_url": "https://en.wikipedia.org/wiki/Emergency_Economic_Stabilization_Act_of_2008"
+  },
+  {
+    "date": "2010-05-06",
+    "event_type": "FLASH_CRASH",
+    "region": "US",
+    "title": "플래시 크래시",
+    "detail": "다우지수가 36분 만에 약 9% 폭락 후 대부분 회복. 고빈도매매(HFT) 시스템 리스크 논쟁의 발단.",
+    "tags": ["market-structure", "hft", "flash-crash"],
+    "importance_score": 0.9,
+    "source_url": "https://en.wikipedia.org/wiki/2010_flash_crash"
+  },
+  {
+    "date": "2011-08-05",
+    "event_type": "DOWNGRADE",
+    "region": "US",
+    "title": "美 국가신용등급 AA+로 강등",
+    "detail": "S&P가 미국 국가신용등급을 AAA에서 AA+로 사상 최초 강등. 다음 거래일 S&P500 -6.7%.",
+    "tags": ["sovereign", "rating", "downgrade"],
+    "importance_score": 0.95,
+    "source_url": "https://en.wikipedia.org/wiki/United_States_federal_government_credit-rating_downgrades"
+  },
+  {
+    "date": "2011-08-09",
+    "event_type": "CRISIS",
+    "region": "KR",
+    "title": "코스피 동조 폭락",
+    "detail": "美 등급 강등 여파로 코스피가 3.6% 급락. 서킷브레이커 발동 논의.",
+    "tags": ["crisis", "contagion"],
+    "importance_score": 0.8
+  },
+  {
+    "date": "2015-08-11",
+    "event_type": "FX_SHOCK",
+    "region": "GLOBAL",
+    "title": "중국 위안화 기습 평가절하",
+    "detail": "PBoC가 위안화 기준환율을 1.9% 절하. 아시아 신흥국 통화·주식 동반 급락.",
+    "tags": ["fx", "china", "currency-war"],
+    "importance_score": 0.9,
+    "source_url": "https://en.wikipedia.org/wiki/2015_Chinese_stock_market_crash"
+  },
+  {
+    "date": "2016-06-24",
+    "event_type": "GEOPOLITICAL",
+    "region": "GLOBAL",
+    "title": "브렉시트 국민투표 가결",
+    "detail": "영국 EU 탈퇴 국민투표 가결. 파운드 사상 최대 일일 낙폭, 글로벌 증시 일제히 급락.",
+    "tags": ["politics", "eu", "uk", "brexit"],
+    "importance_score": 0.95,
+    "source_url": "https://en.wikipedia.org/wiki/2016_United_Kingdom_European_Union_membership_referendum"
+  },
+  {
+    "date": "2018-02-05",
+    "event_type": "VOL_SHOCK",
+    "region": "US",
+    "title": "VIXmageddon",
+    "detail": "VIX가 50 이상으로 폭등하며 XIV ETN 청산. 인버스 변동성 상품 구조적 리스크 노출.",
+    "tags": ["volatility", "vix", "etp"],
+    "importance_score": 0.85
+  },
+  {
+    "date": "2018-07-06",
+    "event_type": "TARIFF",
+    "region": "GLOBAL",
+    "title": "美·中 1차 관세 발효",
+    "detail": "트럼프 행정부 중국산 340억 달러 규모 25% 관세 1차 발효. 미중 무역전쟁 본격화.",
+    "tags": ["tariff", "trade-war", "china"],
+    "importance_score": 0.9
+  },
+  {
+    "date": "2020-03-09",
+    "event_type": "CRISIS",
+    "region": "GLOBAL",
+    "title": "COVID 서킷브레이커 1차",
+    "detail": "WHO 팬데믹 경보 + 사우디 증산 발표 여파로 S&P500 -7.6%, 2008년 이후 최초 서킷브레이커 발동.",
+    "tags": ["crisis", "covid", "circuit-breaker"],
+    "importance_score": 1.0,
+    "source_url": "https://en.wikipedia.org/wiki/2020_stock_market_crash"
+  },
+  {
+    "date": "2020-03-15",
+    "event_type": "POLICY",
+    "region": "US",
+    "title": "Fed 제로금리 + 7000억 QE 발표",
+    "detail": "연준 긴급회의로 FFR 100bp 인하하여 0~0.25% 제로금리 복귀. 7천억 달러 QE 재가동.",
+    "tags": ["policy", "rate-cut", "qe", "emergency"],
+    "importance_score": 1.0,
+    "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200315a.htm"
+  },
+  {
+    "date": "2020-03-18",
+    "event_type": "CRISIS",
+    "region": "KR",
+    "title": "코스피 공매도 금지 시행",
+    "detail": "COVID 폭락으로 코스피 1457까지 급락. 금융위, 6개월간 공매도 전면 금지 조치.",
+    "tags": ["crisis", "covid", "shortsale-ban"],
+    "importance_score": 0.9
+  },
+  {
+    "date": "2022-02-24",
+    "event_type": "GEOPOLITICAL",
+    "region": "GLOBAL",
+    "title": "러시아 우크라이나 침공",
+    "detail": "러시아군 우크라이나 전면 침공 개시. 유가 급등, 글로벌 인플레 압력 가속.",
+    "tags": ["war", "russia", "ukraine", "energy"],
+    "importance_score": 1.0,
+    "source_url": "https://en.wikipedia.org/wiki/Russian_invasion_of_Ukraine"
+  },
+  {
+    "date": "2022-06-15",
+    "event_type": "POLICY",
+    "region": "US",
+    "title": "Fed 28년만의 75bp 인상",
+    "detail": "연준이 1994년 이후 처음으로 기준금리를 75bp 인상(1.50→1.75%). 공격적 긴축 사이클 본격화.",
+    "tags": ["policy", "rate-hike", "inflation"],
+    "importance_score": 0.95,
+    "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20220615a.htm"
+  },
+  {
+    "date": "2022-09-28",
+    "event_type": "CRISIS",
+    "region": "KR",
+    "title": "레고랜드 ABCP 디폴트",
+    "detail": "강원도 지급보증 레고랜드 프로젝트 ABCP 부도. 국내 채권시장 신용경색 확산.",
+    "tags": ["crisis", "credit", "abcp"],
+    "importance_score": 0.85
+  },
+  {
+    "date": "2023-03-10",
+    "event_type": "CRISIS",
+    "region": "US",
+    "title": "SVB 파산",
+    "detail": "실리콘밸리은행 파산 (자산 기준 미국 2대 은행 파산). 지역은행 예금 엑소더스·BTFP 도입으로 확산.",
+    "tags": ["crisis", "banking", "bank-run"],
+    "importance_score": 0.95,
+    "source_url": "https://en.wikipedia.org/wiki/Collapse_of_Silicon_Valley_Bank"
+  },
+  {
+    "date": "2023-03-19",
+    "event_type": "CRISIS",
+    "region": "GLOBAL",
+    "title": "Credit Suisse UBS 강제 매각",
+    "detail": "스위스 당국이 Credit Suisse를 UBS에 30억 스위스프랑에 강제 매각. AT1 채권 160억 달러 상각.",
+    "tags": ["crisis", "banking", "merger"],
+    "importance_score": 0.9,
+    "source_url": "https://en.wikipedia.org/wiki/Acquisition_of_Credit_Suisse_by_UBS"
+  },
+  {
+    "date": "2023-10-07",
+    "event_type": "GEOPOLITICAL",
+    "region": "GLOBAL",
+    "title": "이스라엘·하마스 전쟁 개시",
+    "detail": "하마스의 이스라엘 기습 공격으로 중동 긴장 급격히 고조. 유가·안전자산 가격 급등.",
+    "tags": ["war", "middle-east", "geopolitics"],
+    "importance_score": 0.9
+  },
+  {
+    "date": "2024-08-05",
+    "event_type": "VOL_SHOCK",
+    "region": "GLOBAL",
+    "title": "엔 캐리 청산 쇼크",
+    "detail": "BoJ 금리 인상 + 美 고용 둔화로 엔 캐리 트레이드 대량 청산. 닛케이 -12.4% (역대 최대 낙폭).",
+    "tags": ["carry-trade", "jpy", "volatility"],
+    "importance_score": 0.9
+  },
+  {
+    "date": "2024-09-18",
+    "event_type": "POLICY",
+    "region": "US",
+    "title": "Fed 50bp 인하(완화 사이클 개시)",
+    "detail": "연준이 기준금리를 50bp 인하하며 4년만의 완화 사이클 진입. 첫 인하폭으로는 2008년 이후 최대.",
+    "tags": ["policy", "rate-cut", "pivot"],
+    "importance_score": 0.9,
+    "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20240918a.htm"
+  },
+  {
+    "date": "2024-12-03",
+    "event_type": "GEOPOLITICAL",
+    "region": "KR",
+    "title": "계엄령 선포·해제 쇼크",
+    "detail": "대통령 비상계엄 선포 후 수시간 내 해제. 원화·증시 순간 급락, 한국 주식 ADR 장중 폭락.",
+    "tags": ["politics", "korea", "martial-law"],
+    "importance_score": 0.9
+  },
+  {
+    "date": "2025-04-02",
+    "event_type": "TARIFF",
+    "region": "GLOBAL",
+    "title": "트럼프 상호관세 발표",
+    "detail": "미국의 상호관세(Reciprocal Tariffs) 전면 도입 발표. 관세 인상안 발효 시점을 둘러싼 글로벌 증시 변동성 급증.",
+    "tags": ["tariff", "trade-war", "reciprocal"],
+    "importance_score": 0.95
+  }
+]

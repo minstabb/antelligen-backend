@@ -21,7 +21,7 @@ _PERIOD_CONFIG: dict[str, dict] = {
     "1D": {"key_fn": None},
     "1W": {"key_fn": "week"},
     "1M": {"key_fn": "month"},
-    "1Y": {"key_fn": "year"},
+    "1Y": {"key_fn": "quarter"},
 }
 
 
@@ -35,15 +35,16 @@ def _month_key(d: date) -> date:
     return date(d.year, d.month, 1)
 
 
-def _year_key(d: date) -> date:
-    """해당 날짜가 속한 연도의 1월 1일"""
-    return date(d.year, 1, 1)
+def _quarter_key(d: date) -> date:
+    """해당 날짜가 속한 달력 분기의 시작일 (1/4/7/10월 1일)."""
+    q_start_month = ((d.month - 1) // 3) * 3 + 1
+    return date(d.year, q_start_month, 1)
 
 
 _KEY_FN_MAP: dict[str, Callable[[date], date]] = {
     "week": _week_key,
     "month": _month_key,
-    "year": _year_key,
+    "quarter": _quarter_key,
 }
 
 
@@ -87,11 +88,14 @@ class GetNasdaqBarsUseCase:
     async def execute(self, period: str) -> NasdaqBarsResponse:
         """period 기준 봉 개수로 나스닥 OHLCV 데이터를 반환한다.
 
-        period별 반환 봉 개수:
-            1D → 최근 252 일봉
-            1W → 최근 156 주봉 (bar_date = 해당 주 월요일)
-            1M → 최근  60 월봉 (bar_date = 해당 월 1일)
-            1Y → 최근  20 연봉 (bar_date = 해당 연도 1월 1일)
+        period별 봉 집계 기준 (ADR-0001: period는 candle interval):
+            1D → 일봉 (집계 없음)
+            1W → 주봉 (bar_date = 해당 주 월요일)
+            1M → 월봉 (bar_date = 해당 월 1일)
+            1Y → 분기봉 (bar_date = 해당 달력 분기 시작일 1/4/7/10월 1일).
+                 §17: yfinance가 연봉을 미지원해 내부적으로 1Q(분기봉)로 alias하는 것과
+                 동일한 정밀도로 집계. /anomaly-bars와 time 경계가 수렴하여 차트
+                 마커 정렬이 자연스러워짐.
         """
         key_fn_name: Optional[str] = _PERIOD_CONFIG[period]["key_fn"]
 

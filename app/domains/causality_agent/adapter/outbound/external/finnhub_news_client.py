@@ -9,6 +9,8 @@ from app.infrastructure.config.settings import get_settings
 logger = logging.getLogger(__name__)
 
 _COMPANY_NEWS_API = "https://finnhub.io/api/v1/company-news"
+_RECOMMENDATION_API = "https://finnhub.io/api/v1/stock/recommendation"
+_EARNINGS_API = "https://finnhub.io/api/v1/stock/earnings"
 _TIMEOUT_SECONDS = 10.0
 _MAX_RECORDS = 100
 
@@ -72,3 +74,50 @@ class FinnhubNewsClient:
                 }
             )
         return articles
+
+    async def get_recommendation_trend(self, symbol: str) -> List[Dict[str, Any]]:
+        """애널리스트 buy/hold/sell 레이팅 월별 집계.
+
+        반환 샘플: [{"period": "2026-03-01", "buy": 30, "hold": 10, "sell": 2, ...}, ...]
+        소비자는 이전 달 대비 buy/sell 비율 변화로 upgrade/downgrade 이벤트를 생성한다.
+        """
+        if not self._api_key:
+            return []
+        params = {"symbol": symbol, "token": self._api_key}
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+                resp = await client.get(_RECOMMENDATION_API, params=params)
+                if resp.status_code == 429:
+                    logger.info("[Finnhub] 429 recommendation (symbol=%s)", symbol)
+                    return []
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            logger.info("[Finnhub] recommendation 조회 실패 (symbol=%s): %s", symbol, exc)
+            return []
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_earnings_surprise(self, symbol: str) -> List[Dict[str, Any]]:
+        """실적 서프라이즈 히스토리.
+
+        반환 샘플: [{"period": "2026-03-31", "actual": 1.52, "estimate": 1.48, "surprise": 0.04, "surprisePercent": 2.7}, ...]
+        """
+        if not self._api_key:
+            return []
+        params = {"symbol": symbol, "token": self._api_key}
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+                resp = await client.get(_EARNINGS_API, params=params)
+                if resp.status_code == 429:
+                    logger.info("[Finnhub] 429 earnings (symbol=%s)", symbol)
+                    return []
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            logger.info("[Finnhub] earnings 조회 실패 (symbol=%s): %s", symbol, exc)
+            return []
+        if not isinstance(data, list):
+            return []
+        return data

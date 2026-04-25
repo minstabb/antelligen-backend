@@ -26,8 +26,6 @@ from app.domains.history_agent.domain.entity.event_enrichment import (
     compute_detail_hash,
 )
 
-pytestmark = pytest.mark.asyncio
-
 _TODAY = datetime.date.today()
 _TICKER = "AAPL"
 
@@ -71,6 +69,7 @@ def _make_usecase(enrichment_repo) -> HistoryAgentUseCase:
         redis=redis_mock,
         enrichment_repo=enrichment_repo,
         asset_type_port=MagicMock(),
+        fred_macro_port=MagicMock(),
     )
 
 
@@ -222,7 +221,6 @@ async def test_no_llm_title_call_when_enrich_titles_false():
     """enrich_titles=False이면 enrich_price_titles / enrich_other_titles가 호출되지 않는다."""
     from app.domains.dashboard.application.response.announcement_response import AnnouncementsResponse
     from app.domains.dashboard.application.response.corporate_event_response import CorporateEventsResponse
-    from app.domains.dashboard.application.response.price_event_response import PriceEventsResponse
 
     redis_mock = AsyncMock()
     redis_mock.get = AsyncMock(return_value=None)
@@ -233,7 +231,7 @@ async def test_no_llm_title_call_when_enrich_titles_false():
     repo.upsert_bulk = AsyncMock(return_value=0)
 
     asset_type_mock = AsyncMock()
-    asset_type_mock.is_etf = AsyncMock(return_value=False)
+    asset_type_mock.get_quote_type = AsyncMock(return_value="EQUITY")
 
     usecase = HistoryAgentUseCase(
         stock_bars_port=MagicMock(),
@@ -244,29 +242,26 @@ async def test_no_llm_title_call_when_enrich_titles_false():
         redis=redis_mock,
         enrichment_repo=repo,
         asset_type_port=asset_type_mock,
+        fred_macro_port=MagicMock(),
     )
 
     _module = "app.domains.history_agent.application.usecase.history_agent_usecase"
 
-    price_response = PriceEventsResponse(ticker=_TICKER, period="1M", count=0, events=[])
+    # §13.4 C: PRICE 카테고리 제거. price_titles·GetPriceEventsUseCase 참조 제거.
     corp_response = CorporateEventsResponse(ticker=_TICKER, period="1M", count=0, events=[])
     ann_response = AnnouncementsResponse(ticker=_TICKER, period="1M", count=0, events=[])
 
-    with patch(f"{_module}.enrich_price_titles", new_callable=AsyncMock) as mock_price_titles, \
-         patch(f"{_module}.enrich_other_titles", new_callable=AsyncMock) as mock_other_titles, \
-         patch(f"{_module}.GetPriceEventsUseCase") as MockPriceUC, \
+    with patch(f"{_module}.enrich_other_titles", new_callable=AsyncMock) as mock_other_titles, \
          patch(f"{_module}.GetCorporateEventsUseCase") as MockCorpUC, \
          patch(f"{_module}.GetAnnouncementsUseCase") as MockAnnUC, \
          patch(f"{_module}._enrich_causality", new_callable=AsyncMock), \
          patch(f"{_module}._enrich_announcement_details", new_callable=AsyncMock):
 
-        MockPriceUC.return_value.execute = AsyncMock(return_value=price_response)
         MockCorpUC.return_value.execute = AsyncMock(return_value=corp_response)
         MockAnnUC.return_value.execute = AsyncMock(return_value=ann_response)
 
         await usecase.execute(ticker=_TICKER, period="1M", enrich_titles=False)
 
-        mock_price_titles.assert_not_called()
         mock_other_titles.assert_not_called()
 
 
@@ -282,6 +277,9 @@ async def test_redis_cache_hit_skips_db_query():
     repo = AsyncMock()
     repo.find_by_keys = AsyncMock()
 
+    asset_type_mock = AsyncMock()
+    asset_type_mock.get_quote_type = AsyncMock(return_value="EQUITY")
+
     usecase = HistoryAgentUseCase(
         stock_bars_port=MagicMock(),
         yfinance_corporate_port=MagicMock(),
@@ -290,7 +288,8 @@ async def test_redis_cache_hit_skips_db_query():
         dart_announcement_client=MagicMock(),
         redis=redis_mock,
         enrichment_repo=repo,
-        asset_type_port=MagicMock(),
+        asset_type_port=asset_type_mock,
+        fred_macro_port=MagicMock(),
     )
 
     result = await usecase.execute(ticker=_TICKER, period="1M")

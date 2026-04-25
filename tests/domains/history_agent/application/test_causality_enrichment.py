@@ -8,9 +8,7 @@ import datetime
 from typing import List
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
-pytestmark = pytest.mark.asyncio
+import pytest  # noqa: F401  — pytest auto-asyncio mode가 async 테스트를 자동 수집
 
 from app.domains.history_agent.application.response.timeline_response import (
     HypothesisResult,

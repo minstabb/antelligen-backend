@@ -44,12 +44,10 @@ from app.domains.dashboard.adapter.outbound.external.yahoo_finance_corporate_eve
 )
 from app.domains.dashboard.application.response.announcement_response import AnnouncementsResponse
 from app.domains.dashboard.application.response.corporate_event_response import CorporateEventsResponse
-from app.domains.dashboard.application.response.price_event_response import PriceEventsResponse
 from app.domains.dashboard.application.usecase.get_announcements_usecase import GetAnnouncementsUseCase
 from app.domains.dashboard.application.usecase.get_corporate_events_usecase import (
     GetCorporateEventsUseCase,
 )
-from app.domains.dashboard.application.usecase.get_price_events_usecase import GetPriceEventsUseCase
 from app.domains.dashboard.application.usecase.get_stock_bars_usecase import GetStockBarsUseCase
 from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.database.database import get_db
@@ -140,23 +138,9 @@ async def get_stock_bars(
     return BaseResponse.ok(data=result)
 
 
-@router.get("/stocks/{ticker}/price-events", response_model=BaseResponse[PriceEventsResponse])
-async def get_price_events(
-    ticker: str,
-    period: str = Query("1Y", description="조회 기간: 1D | 1W | 1M | 1Y"),
-):
-    """개별 종목의 가격 이벤트(52주 신고가/신저가, 급등락, 거래량 급증, 갭)를 반환합니다."""
-    if period not in _VALID_PERIODS:
-        raise AppException(
-            status_code=400,
-            message=f"유효하지 않은 period입니다. 사용 가능: {', '.join(sorted(_VALID_PERIODS))}",
-        )
-
-    result = await GetPriceEventsUseCase(
-        stock_bars_port=YahooFinanceStockClient(),
-    ).execute(ticker=ticker.upper(), period=period)
-
-    return BaseResponse.ok(data=result)
+# §13.4 C: /price-events 엔드포인트 철거.
+# PRICE 카테고리(LOW_52W/HIGH_52W/SURGE/PLUNGE/GAP)는 `/history-agent/anomaly-bars`
+# 엔드포인트가 차트 이상치 봉 마커로 대체.
 
 
 @router.get("/stocks/{ticker}/corporate-events", response_model=BaseResponse[CorporateEventsResponse])

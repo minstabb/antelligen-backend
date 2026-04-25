@@ -1,0 +1,557 @@
+[
+  {
+    "label": "AAPL_1M",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "AAPL",
+      "period": "1M",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 41.68,
+    "warm_sec": 0.005,
+    "count": 72,
+    "len_events": 72,
+    "is_etf": false,
+    "asset_type": "EQUITY",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "ANNOUNCEMENT": 42,
+      "CORPORATE": 20
+    },
+    "type_counts_top5": {
+      "MAJOR_EVENT": 42,
+      "DIVIDEND": 20,
+      "NEWS": 10
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": null,
+    "importance_max": null,
+    "importance_mean": null,
+    "importance_n": 0,
+    "causality_events": 0
+  },
+  {
+    "label": "AAPL_1Y",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "AAPL",
+      "period": "1Y",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 53.19,
+    "warm_sec": 0.004,
+    "count": 10,
+    "len_events": 10,
+    "is_etf": false,
+    "asset_type": "EQUITY",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10
+    },
+    "type_counts_top5": {
+      "NEWS": 10
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": null,
+    "importance_max": null,
+    "importance_mean": null,
+    "importance_n": 0,
+    "causality_events": 0
+  },
+  {
+    "label": "NVDA_1Y",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "NVDA",
+      "period": "1Y",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 16.23,
+    "warm_sec": 0.003,
+    "count": 11,
+    "len_events": 11,
+    "is_etf": false,
+    "asset_type": "EQUITY",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "CORPORATE": 1
+    },
+    "type_counts_top5": {
+      "NEWS": 10,
+      "EARNINGS_BEAT": 1
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": null,
+    "importance_max": null,
+    "importance_mean": null,
+    "importance_n": 0,
+    "causality_events": 0
+  },
+  {
+    "label": "005930_1M",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "005930",
+      "period": "1M",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 36.36,
+    "warm_sec": 0.004,
+    "count": 29,
+    "len_events": 29,
+    "is_etf": false,
+    "asset_type": "EQUITY",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "CORPORATE": 19
+    },
+    "type_counts_top5": {
+      "DIVIDEND": 19,
+      "NEWS": 10
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": null,
+    "importance_max": null,
+    "importance_mean": null,
+    "importance_n": 0,
+    "causality_events": 0
+  },
+  {
+    "label": "005930_1Y",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "005930",
+      "period": "1Y",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 58.66,
+    "warm_sec": 0.005,
+    "count": 10,
+    "len_events": 10,
+    "is_etf": false,
+    "asset_type": "EQUITY",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10
+    },
+    "type_counts_top5": {
+      "NEWS": 10
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": null,
+    "importance_max": null,
+    "importance_mean": null,
+    "importance_n": 0,
+    "causality_events": 0
+  },
+  {
+    "label": "IXIC_1M",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "^IXIC",
+      "period": "1M",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 45.99,
+    "warm_sec": 0.006,
+    "count": 40,
+    "len_events": 40,
+    "is_etf": false,
+    "asset_type": "INDEX",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "MACRO": 30
+    },
+    "type_counts_top5": {
+      "NEWS": 10,
+      "INTEREST_RATE": 8,
+      "POLICY": 4,
+      "CRISIS": 4,
+      "CPI": 3
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.7,
+    "importance_max": 1.0,
+    "importance_mean": 0.878,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "IXIC_1Y",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "^IXIC",
+      "period": "1Y",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 23.37,
+    "warm_sec": 0.008,
+    "count": 40,
+    "len_events": 40,
+    "is_etf": false,
+    "asset_type": "INDEX",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "MACRO": 30
+    },
+    "type_counts_top5": {
+      "NEWS": 10,
+      "INTEREST_RATE": 8,
+      "POLICY": 4,
+      "CRISIS": 4,
+      "GEOPOLITICAL": 3
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.85,
+    "importance_max": 1.0,
+    "importance_mean": 0.944,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "GSPC_1Y",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "^GSPC",
+      "period": "1Y",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 59.65,
+    "warm_sec": 0.007,
+    "count": 40,
+    "len_events": 40,
+    "is_etf": false,
+    "asset_type": "INDEX",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "MACRO": 30
+    },
+    "type_counts_top5": {
+      "NEWS": 10,
+      "INTEREST_RATE": 8,
+      "POLICY": 4,
+      "CRISIS": 4,
+      "GEOPOLITICAL": 3
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.85,
+    "importance_max": 1.0,
+    "importance_mean": 0.944,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "KS11_1Y",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "^KS11",
+      "period": "1Y",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 73.11,
+    "warm_sec": 0.005,
+    "count": 40,
+    "len_events": 40,
+    "is_etf": false,
+    "asset_type": "INDEX",
+    "region": null,
+    "category_counts": {
+      "MACRO": 30,
+      "NEWS": 10
+    },
+    "type_counts_top5": {
+      "NEWS": 10,
+      "INTEREST_RATE": 8,
+      "CRISIS": 6,
+      "GEOPOLITICAL": 4,
+      "OIL_SPIKE": 2
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.7,
+    "importance_max": 1.0,
+    "importance_mean": 0.857,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "SPY_1M",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "SPY",
+      "period": "1M",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 44.57,
+    "warm_sec": 0.005,
+    "count": 333,
+    "len_events": 333,
+    "is_etf": true,
+    "asset_type": "ETF",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "ANNOUNCEMENT": 221,
+      "MACRO": 30,
+      "CORPORATE": 72
+    },
+    "type_counts_top5": {
+      "MAJOR_EVENT": 214,
+      "DIVIDEND": 68,
+      "NEWS": 10,
+      "INTEREST_RATE": 8,
+      "CONTRACT": 6
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [
+      "2025-05-01::주요 공시",
+      "2023-02-02::주요 공시"
+    ],
+    "same_date_title_dup_count": 2,
+    "importance_min": 0.7,
+    "importance_max": 1.0,
+    "importance_mean": 0.878,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "QQQ_1M",
+    "endpoint": "timeline",
+    "params": {
+      "ticker": "QQQ",
+      "period": "1M",
+      "enrich_titles": "false"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 60.31,
+    "warm_sec": 0.006,
+    "count": 345,
+    "len_events": 345,
+    "is_etf": true,
+    "asset_type": "ETF",
+    "region": null,
+    "category_counts": {
+      "NEWS": 10,
+      "ANNOUNCEMENT": 241,
+      "MACRO": 30,
+      "CORPORATE": 64
+    },
+    "type_counts_top5": {
+      "MAJOR_EVENT": 231,
+      "DIVIDEND": 60,
+      "NEWS": 10,
+      "CONTRACT": 9,
+      "INTEREST_RATE": 8
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [
+      "2025-05-16::주요 공시",
+      "2021-07-02::주요 공시"
+    ],
+    "same_date_title_dup_count": 2,
+    "importance_min": 0.7,
+    "importance_max": 1.0,
+    "importance_mean": 0.878,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "MACRO_US_1Y",
+    "endpoint": "macro-timeline",
+    "params": {
+      "region": "US",
+      "period": "1Y"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 0.53,
+    "warm_sec": 0.003,
+    "count": 30,
+    "len_events": 30,
+    "is_etf": false,
+    "asset_type": "MACRO",
+    "region": "US",
+    "category_counts": {
+      "MACRO": 30
+    },
+    "type_counts_top5": {
+      "INTEREST_RATE": 8,
+      "POLICY": 4,
+      "CRISIS": 4,
+      "GEOPOLITICAL": 3,
+      "UNEMPLOYMENT": 3
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.85,
+    "importance_max": 1.0,
+    "importance_mean": 0.944,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "MACRO_KR_1Y",
+    "endpoint": "macro-timeline",
+    "params": {
+      "region": "KR",
+      "period": "1Y"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 0.61,
+    "warm_sec": 0.002,
+    "count": 30,
+    "len_events": 30,
+    "is_etf": false,
+    "asset_type": "MACRO",
+    "region": "KR",
+    "category_counts": {
+      "MACRO": 30
+    },
+    "type_counts_top5": {
+      "INTEREST_RATE": 8,
+      "CRISIS": 6,
+      "GEOPOLITICAL": 4,
+      "TARIFF": 2,
+      "VIX_SPIKE": 2
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.7,
+    "importance_max": 1.0,
+    "importance_mean": 0.857,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "MACRO_GLOBAL_5Y",
+    "endpoint": "macro-timeline",
+    "params": {
+      "region": "GLOBAL",
+      "period": "5Y"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 0.96,
+    "warm_sec": 0.002,
+    "count": 30,
+    "len_events": 30,
+    "is_etf": false,
+    "asset_type": "MACRO",
+    "region": "GLOBAL",
+    "category_counts": {
+      "MACRO": 30
+    },
+    "type_counts_top5": {
+      "GEOPOLITICAL_RISK": 4,
+      "GEOPOLITICAL": 4,
+      "INTEREST_RATE": 4,
+      "POLICY": 4,
+      "CRISIS": 4
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.9,
+    "importance_max": 1.0,
+    "importance_mean": 0.958,
+    "importance_n": 30,
+    "causality_events": 0
+  },
+  {
+    "label": "MACRO_US_10Y",
+    "endpoint": "macro-timeline",
+    "params": {
+      "region": "US",
+      "period": "10Y"
+    },
+    "cold_status": 200,
+    "warm_status": 200,
+    "cold_sec": 0.88,
+    "warm_sec": 0.002,
+    "count": 30,
+    "len_events": 30,
+    "is_etf": false,
+    "asset_type": "MACRO",
+    "region": "US",
+    "category_counts": {
+      "MACRO": 30
+    },
+    "type_counts_top5": {
+      "VIX_SPIKE": 5,
+      "INTEREST_RATE": 4,
+      "POLICY": 4,
+      "GEOPOLITICAL_RISK": 3,
+      "CRISIS": 3
+    },
+    "has_high_52w": false,
+    "macro_dup_keys": [],
+    "same_date_title_duplicates": [],
+    "same_date_title_dup_count": 0,
+    "importance_min": 0.9,
+    "importance_max": 1.0,
+    "importance_mean": 0.969,
+    "importance_n": 30,
+    "causality_events": 0
+  }
+]

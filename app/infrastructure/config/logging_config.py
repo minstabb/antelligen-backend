@@ -6,6 +6,37 @@ LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs")
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s — %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
+# 표준 LogRecord 속성 — `extra=` 로 주입된 필드만 골라내기 위한 제외 목록.
+# 항목이 바뀔 일이 거의 없어 하드코딩. (CPython logging 모듈 참조)
+_STANDARD_LOGRECORD_ATTRS = frozenset({
+    "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
+    "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
+    "created", "msecs", "relativeCreated", "thread", "threadName",
+    "processName", "process", "message", "asctime", "taskName",
+})
+
+
+class ExtraFieldsFormatter(logging.Formatter):
+    """`extra=` 로 주입된 필드를 메시지 뒤에 `key=value` 로 붙이는 Formatter.
+
+    §17 S4-4: 기존 Formatter 문자열에 `%(llm_op)s` 가 없어 구조화 로그가
+    파일에 0건 관측되던 문제 해소. 호출 시마다 달라지는 extra 키(`llm_op`,
+    `elapsed_ms`, `batches`, `latency_p95_s` 등)를 정적 포맷에 하드코딩하면
+    KeyError 가 나므로, record의 __dict__ 에서 표준 속성을 제외한 나머지를
+    동적으로 직렬화.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        extras = {
+            k: v for k, v in record.__dict__.items()
+            if k not in _STANDARD_LOGRECORD_ATTRS and not k.startswith("_")
+        }
+        if not extras:
+            return base
+        suffix = " ".join(f"{k}={v!r}" for k, v in extras.items())
+        return f"{base} | {suffix}"
+
 
 def setup_logging(level: int = logging.INFO) -> None:
     """Configure root logger with console + daily rotating file handlers.
@@ -19,7 +50,7 @@ def setup_logging(level: int = logging.INFO) -> None:
 
     os.makedirs(LOG_DIR, exist_ok=True)
 
-    formatter = logging.Formatter(fmt=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+    formatter = ExtraFieldsFormatter(fmt=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
 
     # Console handler (stdout)
     console_handler = logging.StreamHandler()

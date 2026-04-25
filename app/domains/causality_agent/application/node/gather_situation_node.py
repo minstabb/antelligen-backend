@@ -8,15 +8,13 @@ from app.domains.causality_agent.adapter.outbound.external.fred_economic_client 
     FredEconomicClient,
 )
 from app.domains.causality_agent.domain.state.causality_agent_state import CausalityAgentState
-from app.domains.dashboard.adapter.outbound.external.yahoo_finance_stock_client import (
-    _to_yfinance_ticker,
-)
+from app.infrastructure.external.yahoo_ticker import normalize_yfinance_ticker
 
 logger = logging.getLogger(__name__)
 
 
 def _fetch_ohlcv_sync(ticker: str, start: str, end: str) -> list:
-    t = yf.Ticker(_to_yfinance_ticker(ticker))
+    t = yf.Ticker(normalize_yfinance_ticker(ticker))
     df = t.history(start=start, end=end, auto_adjust=True)
     bars = []
     for idx, row in df.iterrows():
