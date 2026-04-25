@@ -33,30 +33,10 @@ class YahooFinanceCorporateEventClient(YahooFinanceCorporateEventPort):
         t = yf.Ticker(normalize_yfinance_ticker(ticker))
         events: List[CorporateEvent] = []
 
-        events.extend(self._parse_dividends(t))
         events.extend(self._parse_splits(t))
 
         events.sort(key=lambda e: e.date)
         logger.info("[YahooFinanceCorporateEvent] %s 수집 완료: %d건", ticker, len(events))
-        return events
-
-    @staticmethod
-    def _parse_dividends(t: yf.Ticker) -> List[CorporateEvent]:
-        events: List[CorporateEvent] = []
-        try:
-            divs = t.dividends
-            if divs is None or divs.empty:
-                return []
-            for ts, amount in divs.items():
-                bar_date = ts.date() if hasattr(ts, "date") else ts
-                events.append(CorporateEvent(
-                    date=bar_date,
-                    type=CorporateEventType.DIVIDEND,
-                    detail=f"배당 ${amount:.4f}/주",
-                    source="yfinance",
-                ))
-        except Exception as e:
-            logger.warning("[YahooFinanceCorporateEvent] dividends 파싱 실패: %s", e)
         return events
 
     @staticmethod

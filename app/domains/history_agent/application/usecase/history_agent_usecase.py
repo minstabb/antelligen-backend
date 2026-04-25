@@ -15,7 +15,6 @@ from app.domains.dashboard.adapter.outbound.external.dart_corporate_event_client
 )
 from app.domains.dashboard.application.port.out.asset_type_port import AssetTypePort
 from app.domains.dashboard.application.port.out.etf_holdings_port import EtfHoldingsPort
-from app.domains.dashboard.application.port.out.fred_macro_port import FredMacroPort
 from app.domains.dashboard.application.port.out.sec_edgar_announcement_port import (
     SecEdgarAnnouncementPort,
 )
@@ -25,29 +24,17 @@ from app.domains.dashboard.application.port.out.yfinance_corporate_event_port im
 )
 from app.domains.dashboard.application.response.announcement_response import AnnouncementsResponse
 from app.domains.dashboard.application.response.corporate_event_response import CorporateEventsResponse
-from app.domains.dashboard.application.response.economic_event_response import EconomicEventsResponse
 from app.domains.dashboard.application.usecase.get_announcements_usecase import (
     GetAnnouncementsUseCase,
 )
 from app.domains.dashboard.application.usecase.get_corporate_events_usecase import (
     GetCorporateEventsUseCase,
 )
-from app.domains.dashboard.application.usecase.get_economic_events_usecase import (
-    GetEconomicEventsUseCase,
-)
 from app.domains.history_agent.application.usecase.collect_important_macro_events_usecase import (
     CollectImportantMacroEventsUseCase,
 )
 from app.domains.history_agent.application.port.out.event_enrichment_repository_port import (
     EventEnrichmentRepositoryPort,
-)
-from app.domains.history_agent.application.port.out.fundamentals_event_port import (
-    FundamentalEvent,
-    FundamentalsEventPort,
-)
-from app.domains.history_agent.application.port.out.news_event_port import (
-    NewsEventPort,
-    NewsItem,
 )
 from app.domains.history_agent.application.port.out.related_assets_port import (
     GprIndexPort,
@@ -61,12 +48,10 @@ from app.domains.history_agent.application.response.timeline_response import (
 )
 from app.domains.history_agent.application.service.text_utils import (
     needs_korean_summary,
-    needs_news_korean_translation,
 )
 from app.domains.history_agent.application.service.title_generation_service import (
     FALLBACK_TITLE,
     TITLE_MODEL,
-    batch_titles,
     enrich_macro_titles,
     enrich_other_titles,
 )
@@ -80,8 +65,8 @@ from app.infrastructure.langgraph.llm_factory import get_workflow_llm
 logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 3600
-# v3: 뉴스 카테고리(NEWS) + news-sentiment 필드 추가로 스키마 변경 — v2 캐시 무효화.
-_CACHE_VERSION = "v3"
+# v4: NEWS / FUNDAMENTALS 카테고리 제거 + ANNOUNCEMENT 세분류 라벨 5종 추가로 스키마 변경 — v3 캐시 무효화.
+_CACHE_VERSION = "v4"
 
 _SUPPORTED_ASSET_TYPES = {"EQUITY", "INDEX", "ETF"}
 
@@ -338,118 +323,6 @@ async def _enrich_announcement_details(
     logger.info("[HistoryAgent] ✦ 공시 한국어 요약 완료")
 
 
-_NEWS_SUMMARY_BATCH_SYSTEM = """\
-당신은 금융 뉴스 요약 전문가입니다.
-영문 기사 제목/요약 목록을 입력받아 각 항목을 한국어 1문장(40자 이내)으로 간결히 요약하십시오.
-
-규칙:
-- 종목·핵심 사건·영향을 담되 과장·추측 금지
-- 숫자, 고유명사는 원문 그대로 유지
-- 입력 항목 수와 정확히 동일한 개수의 요약을 반환
-- JSON 배열로만 응답: ["요약1", "요약2", ...]
-- 추가 설명·머리글·코드 펜스 금지
-"""
-
-
-_NEWS_SUMMARY_CACHE_VERSION = "v1"
-_NEWS_SUMMARY_CACHE_TTL_SEC = 90 * 24 * 60 * 60  # 90 days
-
-
-def _news_summary_cache_key(title: str) -> str:
-    h = hashlib.sha256(title.encode()).hexdigest()[:16]
-    return f"news_summary:{_NEWS_SUMMARY_CACHE_VERSION}:{h}"
-
-
-async def _enrich_news_details(
-    timeline: List[TimelineEvent],
-    redis: Optional[aioredis.Redis] = None,
-) -> None:
-    """NEWS 이벤트의 영문 title/detail을 한국어 요약 한 문장으로 동시에 교체한다.
-
-    - needs_news_korean_translation 판정(영문·10자 이상) 통과한 항목만 요약 대상
-    - title과 detail은 동일 요약문으로 교체 (UI 카드의 제목/본문 일관성 유지)
-    - feature flag: history_news_korean_summary_enabled (기본 True)
-    - §13.4 B follow-up #1: 단건 ainvoke × N → batch_titles 1+ batch
-    - §13.4 B follow-up #2 (이 변경): Redis 캐시(news_summary:v1:{sha256(title)[:16]})
-      로 영문 title 별 요약 영구 보존. 동일 NEWS 가 여러 ticker/호출에서 등장 시
-      LLM 호출 0회. TTL 90일.
-    """
-    if not get_settings().history_news_korean_summary_enabled:
-        return
-
-    targets = [
-        e for e in timeline
-        if e.category == "NEWS" and needs_news_korean_translation(e.title)
-    ]
-    if not targets:
-        return
-
-    cache_keys = [_news_summary_cache_key(e.title) for e in targets]
-    cached_values: List[Optional[bytes]] = []
-    if redis is not None:
-        try:
-            cached_values = await redis.mget(cache_keys)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[HistoryAgent] 뉴스 요약 캐시 mget 실패 — miss 로 진행: %s", exc)
-            cached_values = [None] * len(targets)
-    else:
-        cached_values = [None] * len(targets)
-
-    miss_targets: List[TimelineEvent] = []
-    miss_originals: List[str] = []
-    hit_count = 0
-    for event, cached in zip(targets, cached_values):
-        if cached is not None:
-            summary = cached.decode() if isinstance(cached, (bytes, bytearray)) else str(cached)
-            event.title = summary
-            event.detail = summary
-            hit_count += 1
-        else:
-            miss_originals.append(event.title)
-            miss_targets.append(event)
-
-    if not miss_targets:
-        logger.info(
-            "[HistoryAgent] ✦ 뉴스 한국어 요약 — 전체 캐시 적중: %d건", hit_count,
-        )
-        return
-
-    logger.info(
-        "[HistoryAgent] ✦ 뉴스 한국어 요약 시작: %d건 (cache hit=%d, miss=%d)",
-        len(targets), hit_count, len(miss_targets),
-    )
-    summaries = await batch_titles(
-        items=miss_targets,
-        system_prompt=_NEWS_SUMMARY_BATCH_SYSTEM,
-        build_line=lambda e: e.title,
-        get_fallback=lambda e: e.title,
-        batch_size=get_settings().history_news_summary_batch_size,
-    )
-    save_pairs: List[Tuple[str, str]] = []
-    for event, original_title, summary in zip(miss_targets, miss_originals, summaries):
-        if not summary:
-            continue
-        event.title = summary
-        event.detail = summary
-        if summary != original_title:
-            save_pairs.append((original_title, summary))
-
-    if redis is not None and save_pairs:
-        try:
-            async with redis.pipeline(transaction=False) as pipe:
-                for original_title, summary in save_pairs:
-                    pipe.setex(
-                        _news_summary_cache_key(original_title),
-                        _NEWS_SUMMARY_CACHE_TTL_SEC,
-                        summary,
-                    )
-                await pipe.execute()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[HistoryAgent] 뉴스 요약 캐시 저장 실패 (graceful): %s", exc)
-
-    logger.info("[HistoryAgent] ✦ 뉴스 한국어 요약 완료")
-
-
 # §13.4 C — PRICE 카테고리 완전 철거 (2026-04 결정).
 # 기존 `_from_price_events`·`_PCT_VALUE_TYPES`·`_EXCLUDED_PRICE_TYPES`·
 # `history_price_event_cap`·`price_importance` 는 모두 제거됨.
@@ -510,47 +383,6 @@ def _from_announcements(
     ]
 
 
-def _from_news_items(items: List[NewsItem]) -> List[TimelineEvent]:
-    """NewsEventPort 결과를 TimelineEvent로 변환.
-
-    source 필드는 `news:{provider}` 형식(예: `news:finnhub`)으로 UI 뱃지 구분.
-    title은 우선 원문 제목을 그대로 두고, 타이틀 enrich 단계에서 대체될 수 있다.
-    """
-    events: List[TimelineEvent] = []
-    for item in items:
-        if not item.title:
-            continue
-        title = item.title.strip()
-        events.append(
-            TimelineEvent(
-                title=title[:200],
-                date=item.date,
-                category="NEWS",
-                type="NEWS",
-                detail=(item.summary or item.title).strip()[:600],
-                source=f"news:{item.source}",
-                url=item.url or None,
-                sentiment=item.sentiment,
-            )
-        )
-    return events
-
-
-def _from_fundamentals(events: List[FundamentalEvent], ticker: str) -> List[TimelineEvent]:
-    return [
-        TimelineEvent(
-            title=FALLBACK_TITLE.get(e.type, e.type),
-            date=e.date,
-            category="CORPORATE",
-            type=e.type,
-            detail=e.detail,
-            source=e.source,
-            change_pct=e.change_pct,
-        )
-        for e in events
-    ]
-
-
 def _from_macro_context(events: List[MacroContextEvent]) -> List[TimelineEvent]:
     return [
         TimelineEvent(
@@ -566,9 +398,6 @@ def _from_macro_context(events: List[MacroContextEvent]) -> List[TimelineEvent]:
     ]
 
 
-_KR_TICKER_PATTERN = __import__("re").compile(r"^\d{6}$")
-
-
 _PERIOD_DAYS: Dict[str, int] = {
     "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365, "2Y": 730, "5Y": 1825,
 }
@@ -578,37 +407,6 @@ def datetime_date_from_period(period: str) -> date:
     """period 문자열을 오늘 기준 시작일로 변환. 모르는 값은 90일 fallback."""
     days = _PERIOD_DAYS.get(period.upper(), 90)
     return date.today() - timedelta(days=days)
-
-
-def _resolve_equity_region(ticker: str) -> str:
-    if _KR_TICKER_PATTERN.match(ticker):
-        return "KR"
-    return "US"
-
-
-def _from_macro_events(result: EconomicEventsResponse) -> List[TimelineEvent]:
-    events = []
-    for e in result.events:
-        if e.previous is not None:
-            change = round(e.value - e.previous, 4)
-            sign = "+" if change >= 0 else ""
-            detail = f"{e.label} {e.value:.2f}% (이전: {e.previous:.2f}%, 변화: {sign}{change:.2f}%p)"
-            change_pct = change
-        else:
-            detail = f"{e.label} {e.value:.2f}%"
-            change_pct = None
-        events.append(
-            TimelineEvent(
-                title=FALLBACK_TITLE.get(e.type, e.label),
-                date=e.date,
-                category="MACRO",
-                type=e.type,
-                detail=detail,
-                source="FRED",
-                change_pct=change_pct,
-            )
-        )
-    return events
 
 
 async def _run_causality(ticker: str, event: TimelineEvent) -> List[HypothesisResult]:
@@ -780,11 +578,8 @@ class HistoryAgentUseCase:
         redis: aioredis.Redis,
         enrichment_repo: EventEnrichmentRepositoryPort,
         asset_type_port: AssetTypePort,
-        fred_macro_port: FredMacroPort,
         collect_macro_events_uc: Optional[CollectImportantMacroEventsUseCase] = None,
         etf_holdings_port: Optional[EtfHoldingsPort] = None,
-        news_port: Optional[NewsEventPort] = None,
-        fundamentals_port: Optional[FundamentalsEventPort] = None,
         related_assets_port: Optional[RelatedAssetsPort] = None,
         gpr_index_port: Optional[GprIndexPort] = None,
     ):
@@ -796,11 +591,8 @@ class HistoryAgentUseCase:
         self._redis = redis
         self._enrichment_repo = enrichment_repo
         self._asset_type_port = asset_type_port
-        self._fred_macro_port = fred_macro_port
         self._collect_macro_events_uc = collect_macro_events_uc
         self._etf_holdings_port = etf_holdings_port
-        self._news_port = news_port
-        self._fundamentals_port = fundamentals_port
         self._related_assets_port = related_assets_port
         self._gpr_index_port = gpr_index_port
 
@@ -896,17 +688,13 @@ class HistoryAgentUseCase:
             dart_client=self._dart_announcement_client,
         )
 
-        logger.info("[HistoryAgent] [1/4] 데이터 수집 시작 (기업이벤트/공시/뉴스/fundamentals 병렬)")
+        logger.info("[HistoryAgent] [1/4] 데이터 수집 시작 (기업이벤트/공시 병렬)")
         await _notify("data_fetch", "데이터 수집 중...", 10)
-        region = _resolve_equity_region(ticker)
         (
             corporate_result, announcement_result,
-            news_events, fundamentals_events,
         ) = await asyncio.gather(
             corporate_uc.execute(ticker=ticker, period=period, corp_code=corp_code),
             announcement_uc.execute(ticker=ticker, period=period, corp_code=corp_code),
-            self._collect_news_events(ticker=ticker, period=period, region=region),
-            self._collect_fundamentals(ticker=ticker, period=period),
             return_exceptions=True,
         )
 
@@ -925,16 +713,6 @@ class HistoryAgentUseCase:
             logger.info("[HistoryAgent]   └ 공시: %d건", len(events))
         else:
             logger.warning("[HistoryAgent]   └ 공시 수집 실패: %s", announcement_result)
-
-        if isinstance(news_events, list):
-            timeline.extend(news_events)
-        else:
-            logger.warning("[HistoryAgent]   └ 뉴스 수집 실패 (graceful): %s", news_events)
-
-        if isinstance(fundamentals_events, list):
-            timeline.extend(fundamentals_events)
-        else:
-            logger.warning("[HistoryAgent]   └ fundamentals 수집 실패 (graceful): %s", fundamentals_events)
 
         logger.info("[HistoryAgent]   └ 타임라인 합계: %d건", len(timeline))
 
@@ -966,13 +744,11 @@ class HistoryAgentUseCase:
                 causality_task,
                 enrich_other_titles(timeline),
                 _enrich_announcement_details(timeline, redis=self._redis),
-                _enrich_news_details(timeline, redis=self._redis),
             )
         else:
             await asyncio.gather(
                 causality_task,
                 _enrich_announcement_details(timeline, redis=self._redis),
-                _enrich_news_details(timeline, redis=self._redis),
             )
 
         # 4) 신규 이벤트만 DB 저장
@@ -1006,29 +782,21 @@ class HistoryAgentUseCase:
                 except Exception:
                     pass
 
-        logger.info("[HistoryAgent] INDEX 경로: 중요 MACRO + 뉴스 수집 시작 (가격·기업이벤트·공시 생략)")
+        logger.info("[HistoryAgent] INDEX 경로: 중요 MACRO 수집 시작 (가격·기업이벤트·공시·뉴스 생략)")
         await _notify("data_fetch", "데이터 수집 중...", 10)
 
         region = _INDEX_REGION.get(ticker, _DEFAULT_INDEX_REGION)
-        (
-            macro_events, news_events,
-        ) = await asyncio.gather(
-            self._collect_important_macro_events(region=region, period=period),
-            self._collect_news_events(ticker=ticker, period=period, region="GLOBAL"),
-            return_exceptions=True,
-        )
+        try:
+            macro_events = await self._collect_important_macro_events(
+                region=region, period=period,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[HistoryAgent]   └ 중요 MACRO 수집 실패 (graceful): %s", exc)
+            macro_events = []
 
         timeline: List[TimelineEvent] = []
-        if isinstance(macro_events, list):
-            timeline.extend(macro_events)
-            logger.info("[HistoryAgent]   └ 중요 MACRO 이벤트: %d건", len(macro_events))
-        else:
-            logger.warning("[HistoryAgent]   └ 중요 MACRO 수집 실패 (graceful): %s", macro_events)
-
-        if isinstance(news_events, list):
-            timeline.extend(news_events)
-        else:
-            logger.warning("[HistoryAgent]   └ 뉴스 수집 실패 (graceful): %s", news_events)
+        timeline.extend(macro_events)
+        logger.info("[HistoryAgent]   └ 중요 MACRO 이벤트: %d건", len(macro_events))
 
         timeline.sort(key=lambda e: e.date, reverse=True)
 
@@ -1043,12 +811,7 @@ class HistoryAgentUseCase:
 
         await _notify("title_gen", "AI 타이틀 생성 중...", 70)
         if enrich_titles:
-            await asyncio.gather(
-                enrich_macro_titles(timeline, redis=self._redis),
-                _enrich_news_details(timeline, redis=self._redis),
-            )
-        else:
-            await _enrich_news_details(timeline, redis=self._redis)
+            await enrich_macro_titles(timeline, redis=self._redis)
 
         await self._save_enrichments(ticker, new_events)
 
@@ -1088,25 +851,17 @@ class HistoryAgentUseCase:
         await _notify("data_fetch", "ETF 데이터 수집 중...", 10)
 
         # §13.4 C: ETF도 PRICE 카테고리 제거 — 이상치 봉 마커로 대체.
-        (
-            macro_events, news_events,
-        ) = await asyncio.gather(
-            self._collect_important_macro_events(region=region, period=period),
-            self._collect_news_events(ticker=ticker, period=period, region="GLOBAL"),
-            return_exceptions=True,
-        )
+        try:
+            macro_events = await self._collect_important_macro_events(
+                region=region, period=period,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[HistoryAgent]   └ ETF 중요 MACRO 수집 실패 (graceful): %s", exc)
+            macro_events = []
 
         timeline: List[TimelineEvent] = []
-        if isinstance(macro_events, list):
-            timeline.extend(macro_events)
-            logger.info("[HistoryAgent]   └ ETF 중요 MACRO 이벤트: %d건", len(macro_events))
-        else:
-            logger.warning("[HistoryAgent]   └ ETF 중요 MACRO 수집 실패 (graceful): %s", macro_events)
-
-        if isinstance(news_events, list):
-            timeline.extend(news_events)
-        else:
-            logger.warning("[HistoryAgent]   └ 뉴스 수집 실패 (graceful): %s", news_events)
+        timeline.extend(macro_events)
+        logger.info("[HistoryAgent]   └ ETF 중요 MACRO 이벤트: %d건", len(macro_events))
 
         # Holdings 분해 (Step 2). 데이터 없으면 graceful fallback.
         holdings_events: List[TimelineEvent] = []
@@ -1144,13 +899,9 @@ class HistoryAgentUseCase:
                 enrich_macro_titles(timeline, redis=self._redis),
                 enrich_other_titles(timeline),
                 _enrich_announcement_details(timeline, redis=self._redis),
-                _enrich_news_details(timeline, redis=self._redis),
             )
         else:
-            await asyncio.gather(
-                _enrich_announcement_details(timeline, redis=self._redis),
-                _enrich_news_details(timeline, redis=self._redis),
-            )
+            await _enrich_announcement_details(timeline, redis=self._redis)
 
         await self._save_enrichments(ticker, new_events)
 
@@ -1174,7 +925,8 @@ class HistoryAgentUseCase:
     ) -> List[TimelineEvent]:
         """CollectImportantMacroEventsUseCase로 curated+서프라이즈+스파이크 Top-N 수집.
 
-        usecase 미주입(또는 테스트 환경)이면 구버전 MACRO + MACRO_CONTEXT fallback 경로를 유지한다.
+        usecase 미주입(또는 테스트 환경)이면 MACRO_CONTEXT (related_assets + GPR) fallback.
+        정기 FRED 발표는 사용자 분류상 연속적 데이터로 분류되어 제거됨 (시점 명확 이벤트만 유지).
         §13.4 B: chart_interval 봉 단위 차트 범위에 맞춰 lookback_days 명시 전달.
         """
         if self._collect_macro_events_uc is not None:
@@ -1198,45 +950,13 @@ class HistoryAgentUseCase:
 
         macro_window_start = datetime_date_from_period(period)
         macro_window_end = date.today()
-        fred_region = region if region in {"US", "KR"} else "US"
-        macro_result, macro_context = await asyncio.gather(
-            GetEconomicEventsUseCase(fred_macro_port=self._fred_macro_port).execute(
-                period=period if period.upper() in {"1D", "1W", "1M", "1Y"} else "1Y",
-                region=fred_region,
-            ),
-            self._collect_macro_context(
-                start_date=macro_window_start, end_date=macro_window_end,
-            ),
-            return_exceptions=True,
-        )
-        result: List[TimelineEvent] = []
-        if isinstance(macro_result, EconomicEventsResponse):
-            result.extend(_from_macro_events(macro_result))
-        if isinstance(macro_context, list):
-            result.extend(macro_context)
-        return result
-
-    async def _collect_fundamentals(
-        self, *, ticker: str, period: str
-    ) -> List[TimelineEvent]:
-        """애널리스트 레이팅 변동 · 실적 서프라이즈를 CORPORATE 이벤트로 변환."""
-        if self._fundamentals_port is None:
-            return []
         try:
-            events = await self._fundamentals_port.fetch_events(
-                ticker=ticker, period=period,
+            return await self._collect_macro_context(
+                start_date=macro_window_start, end_date=macro_window_end,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("[HistoryAgent] fundamentals 수집 실패: %s", exc)
+            logger.warning("[HistoryAgent] macro context fallback 실패: %s", exc)
             return []
-        if not events:
-            return []
-        result = _from_fundamentals(events, ticker)
-        logger.info(
-            "[HistoryAgent]   └ FUNDAMENTALS 이벤트: %d건 (analyst/earnings)",
-            len(result),
-        )
-        return result
 
     async def _collect_macro_context(
         self, *, start_date, end_date
@@ -1274,36 +994,6 @@ class HistoryAgentUseCase:
         logger.info(
             "[HistoryAgent]   └ MACRO_CONTEXT 이벤트: %d건 (related_assets + GPR)",
             len(events),
-        )
-        return events
-
-    async def _collect_news_events(
-        self, *, ticker: str, period: str, region: str
-    ) -> List[TimelineEvent]:
-        """NewsEventPort로 뉴스를 수집해 TimelineEvent 로 변환.
-
-        포트가 주입되지 않았거나 실패해도 빈 리스트를 반환해 graceful degradation.
-        §13.4 B: chart_interval 봉 단위 차트 범위에 맞춰 lookback_days 명시 전달.
-        """
-        if self._news_port is None:
-            return []
-        top_n = get_settings().history_news_top_n
-        lookback_days = _CHART_INTERVAL_LOOKBACK_DAYS.get(
-            period.upper(), _DEFAULT_CHART_INTERVAL_LOOKBACK_DAYS,
-        )
-        try:
-            items = await self._news_port.fetch_news(
-                ticker=ticker, period=period, region=region, top_n=top_n,  # type: ignore[arg-type]
-                lookback_days=lookback_days,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[HistoryAgent] 뉴스 수집 실패: %s", exc)
-            return []
-        events = _from_news_items(items)
-        logger.info(
-            "[HistoryAgent]   └ NEWS 이벤트: %d건 (region=%s, sources=%s)",
-            len(events), region,
-            sorted({e.source for e in events if e.source}),
         )
         return events
 

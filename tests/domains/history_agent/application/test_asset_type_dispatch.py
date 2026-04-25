@@ -30,16 +30,15 @@ def _make_usecase_with_quote_type(quote_type: str, redis_get_return=None):
         redis=redis_mock,
         enrichment_repo=repo,
         asset_type_port=asset_type_mock,
-        fred_macro_port=MagicMock(),
     ), redis_mock
 
 
 def test_build_cache_key_includes_asset_type_and_version():
     assert HistoryAgentUseCase._build_cache_key("EQUITY", "AAPL", "1Y", True) == (
-        "history_agent:v3:EQUITY:AAPL:1Y"
+        "history_agent:v4:EQUITY:AAPL:1Y"
     )
     assert HistoryAgentUseCase._build_cache_key("INDEX", "^IXIC", "1M", False) == (
-        "history_agent:v3:INDEX:^IXIC:1M:no-titles"
+        "history_agent:v4:INDEX:^IXIC:1M:no-titles"
     )
 
 
@@ -60,21 +59,14 @@ async def test_unsupported_asset_type_returns_empty_response():
 
 @pytest.mark.asyncio
 async def test_etf_dispatches_to_etf_path_without_causality():
-    """ETF는 MACRO+뉴스 경로로 수집되며 is_etf=True. §13.4 C: PRICE 카테고리 제거됨."""
+    """ETF는 중요 MACRO 경로로 수집되며 is_etf=True. §13.4 C: PRICE 제거 / 2026-04 NEWS 제거."""
     usecase, redis_mock = _make_usecase_with_quote_type("ETF")
 
     _module = "app.domains.history_agent.application.usecase.history_agent_usecase"
-    with patch(f"{_module}.GetEconomicEventsUseCase") as MockMacro, \
+    with patch.object(usecase, "_collect_important_macro_events", AsyncMock(return_value=[])), \
          patch(f"{_module}.enrich_macro_titles", new_callable=AsyncMock), \
          patch(f"{_module}.enrich_other_titles", new_callable=AsyncMock), \
          patch(f"{_module}._enrich_announcement_details", new_callable=AsyncMock):
-
-        from app.domains.dashboard.application.response.economic_event_response import (
-            EconomicEventsResponse,
-        )
-        MockMacro.return_value.execute = AsyncMock(
-            return_value=EconomicEventsResponse(chart_interval="1Y", count=0, events=[])
-        )
 
         result = await usecase.execute(ticker="SPY", period="1Y")
 
@@ -91,4 +83,4 @@ async def test_asset_type_cache_key_present_in_redis():
     # redis.get 호출 키가 asset_type을 포함
     get_key = redis_mock.get.call_args.args[0]
     assert "MUTUALFUND" in get_key
-    assert "history_agent:v3" in get_key
+    assert "history_agent:v4" in get_key
