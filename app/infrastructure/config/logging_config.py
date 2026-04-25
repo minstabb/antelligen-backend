@@ -77,3 +77,8 @@ def setup_logging(level: int = logging.INFO) -> None:
     root_logger.setLevel(level)
     root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
+
+    # httpx의 기본 INFO 로그는 URL을 query string 포함 그대로 출력하기 때문에
+    # 외부 API 키(crtfc_key, key 등)가 평문으로 노출된다. WARNING 이상만 남긴다.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
