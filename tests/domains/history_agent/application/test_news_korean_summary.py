@@ -1,4 +1,4 @@
-"""S3-1: NEWS 영문 제목을 한국어 1문장 요약으로 교체하는 경로 검증."""
+"""S3-1 / §13.4 B follow-up: NEWS 영문 제목 한국어 1문장 요약 (batch_titles 경로)."""
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
@@ -30,8 +30,8 @@ async def test_enrich_news_replaces_english_headline():
         ),
     ]
     with patch(
-        "app.domains.history_agent.application.usecase.history_agent_usecase._summarize_news_to_korean",
-        new=AsyncMock(return_value="애플, 쿡 이후 AI 성장 리더십 쟁점"),
+        "app.domains.history_agent.application.usecase.history_agent_usecase.batch_titles",
+        new=AsyncMock(return_value=["애플, 쿡 이후 AI 성장 리더십 쟁점"]),
     ):
         await _enrich_news_details(events)
 
@@ -45,7 +45,7 @@ async def test_enrich_news_skips_korean_headline():
     events = [_make_news("삼성전자, 신형 HBM 양산 돌입")]
     mock = AsyncMock()
     with patch(
-        "app.domains.history_agent.application.usecase.history_agent_usecase._summarize_news_to_korean",
+        "app.domains.history_agent.application.usecase.history_agent_usecase.batch_titles",
         new=mock,
     ):
         await _enrich_news_details(events)
@@ -68,7 +68,7 @@ async def test_enrich_news_feature_flag_off_skips_all(monkeypatch):
     events = [_make_news("Apple's stock surges on strong earnings beat")]
     mock = AsyncMock()
     with patch(
-        "app.domains.history_agent.application.usecase.history_agent_usecase._summarize_news_to_korean",
+        "app.domains.history_agent.application.usecase.history_agent_usecase.batch_titles",
         new=mock,
     ):
         await _enrich_news_details(events)
@@ -88,8 +88,31 @@ async def test_enrich_news_non_news_categories_untouched():
     )
     mock = AsyncMock()
     with patch(
-        "app.domains.history_agent.application.usecase.history_agent_usecase._summarize_news_to_korean",
+        "app.domains.history_agent.application.usecase.history_agent_usecase.batch_titles",
         new=mock,
     ):
         await _enrich_news_details([price])
     mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_enrich_news_batch_called_with_all_targets():
+    """다건 NEWS 타겟이 단일 batch_titles 호출로 묶여 전달되는지 확인 (§13.4 B 핵심)."""
+    events = [
+        _make_news(f"English headline number {i} that triggers the filter logic")
+        for i in range(5)
+    ]
+    mock = AsyncMock(return_value=[f"한국어 요약 {i}" for i in range(5)])
+    with patch(
+        "app.domains.history_agent.application.usecase.history_agent_usecase.batch_titles",
+        new=mock,
+    ):
+        await _enrich_news_details(events)
+
+    # batch_titles 가 1회만 호출되어야 함 — 단건 ainvoke × 5 회귀 방지
+    assert mock.call_count == 1
+    call_kwargs = mock.call_args.kwargs
+    assert len(call_kwargs["items"]) == 5
+    for i, e in enumerate(events):
+        assert e.title == f"한국어 요약 {i}"
+        assert e.detail == f"한국어 요약 {i}"
