@@ -65,6 +65,7 @@ from app.domains.history_agent.application.service.text_utils import (
 from app.domains.history_agent.application.service.title_generation_service import (
     FALLBACK_TITLE,
     TITLE_MODEL,
+    batch_titles,
     enrich_macro_titles,
     enrich_other_titles,
     is_fallback_title,
@@ -249,29 +250,17 @@ async def _enrich_announcement_details(timeline: List[TimelineEvent]) -> None:
     logger.info("[HistoryAgent] ✦ 공시 한국어 요약 완료")
 
 
-_NEWS_SUMMARY_SYSTEM = """\
+_NEWS_SUMMARY_BATCH_SYSTEM = """\
 당신은 금융 뉴스 요약 전문가입니다.
-영문 기사 제목/요약을 입력받아 한국어 1문장(40자 이내)으로 간결히 요약하십시오.
+영문 기사 제목/요약 목록을 입력받아 각 항목을 한국어 1문장(40자 이내)으로 간결히 요약하십시오.
 
 규칙:
 - 종목·핵심 사건·영향을 담되 과장·추측 금지
 - 숫자, 고유명사는 원문 그대로 유지
-- 요약문만 출력한다. 따옴표·머리글·설명을 덧붙이지 않는다
+- 입력 항목 수와 정확히 동일한 개수의 요약을 반환
+- JSON 배열로만 응답: ["요약1", "요약2", ...]
+- 추가 설명·머리글·코드 펜스 금지
 """
-
-
-async def _summarize_news_to_korean(text: str) -> str:
-    """영문 뉴스 제목/본문을 한국어 1문장으로 요약한다. 실패 시 원문 반환."""
-    try:
-        llm = get_workflow_llm(model=TITLE_MODEL)
-        response = await llm.ainvoke([
-            SystemMessage(content=_NEWS_SUMMARY_SYSTEM),
-            HumanMessage(content=text),
-        ])
-        return response.content.strip()
-    except Exception as exc:
-        logger.warning("[HistoryAgent] 뉴스 요약 실패: %s", exc)
-        return text
 
 
 async def _enrich_news_details(timeline: List[TimelineEvent]) -> None:
@@ -280,6 +269,10 @@ async def _enrich_news_details(timeline: List[TimelineEvent]) -> None:
     - needs_news_korean_translation 판정(영문·10자 이상) 통과한 항목만 요약 대상
     - title과 detail은 동일 요약문으로 교체 (UI 카드의 제목/본문 일관성 유지)
     - feature flag: history_news_korean_summary_enabled (기본 True)
+    - §13.4 B follow-up: 이전 단건 ainvoke × N 병렬을 batch_titles 로 교체.
+      gpt-5-mini 의 단건 latency p99 (~30s) 가 wall-clock 지배 → 1 LLM 호출에
+      여러 건 묶어 latency 평탄화. 실패 분류·재시도·logging 은 title 배치 패턴
+      재사용.
     """
     if not get_settings().history_news_korean_summary_enabled:
         return
@@ -292,14 +285,13 @@ async def _enrich_news_details(timeline: List[TimelineEvent]) -> None:
         return
 
     logger.info("[HistoryAgent] ✦ 뉴스 한국어 요약 시작: %d건", len(targets))
-    summaries = await asyncio.gather(
-        *[_summarize_news_to_korean(e.title) for e in targets],
-        return_exceptions=True,
+    summaries = await batch_titles(
+        items=targets,
+        system_prompt=_NEWS_SUMMARY_BATCH_SYSTEM,
+        build_line=lambda e: e.title,
+        get_fallback=lambda e: e.title,
     )
     for event, summary in zip(targets, summaries):
-        if isinstance(summary, Exception):
-            logger.warning("[HistoryAgent] 뉴스 요약 gather 예외: %s", summary)
-            continue
         if not summary:
             continue
         event.title = summary
