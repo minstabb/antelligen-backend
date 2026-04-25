@@ -195,6 +195,7 @@ class CollectImportantMacroEventsUseCase:
                 start_date=start_date,
                 end_date=end_date,
                 threshold_pct=settings.history_related_assets_threshold_pct,
+                top_k=settings.history_related_assets_top_k,
             )
             if self._related is not None
             else asyncio.sleep(0, result=[])
@@ -204,6 +205,7 @@ class CollectImportantMacroEventsUseCase:
                 start_date=start_date,
                 end_date=end_date,
                 mom_change_pct=settings.history_gpr_mom_change_pct,
+                top_k=settings.history_gpr_top_k,
             )
             if self._gpr is not None
             else asyncio.sleep(0, result=[])
@@ -227,6 +229,10 @@ class CollectImportantMacroEventsUseCase:
 
         if isinstance(fred_result, EconomicEventsResponse):
             fred_events = _from_fred_response(fred_result)
+            # §13.4 B perf: 20년 윈도우 fetch 시 FRED surprise 도 폭증 — 최신순 cap
+            fred_cap = settings.history_fred_surprise_top_k
+            if len(fred_events) > fred_cap:
+                fred_events = sorted(fred_events, key=lambda e: e.date, reverse=True)[:fred_cap]
             timeline.extend(fred_events)
             logger.info("[CollectMacro]   FRED surprise: %d건", len(fred_events))
         else:
