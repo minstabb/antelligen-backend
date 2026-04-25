@@ -57,21 +57,56 @@ from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.database import get_db
 
 SESSION_KEY_PREFIX = "session:"
+TEMP_TOKEN_KEY_PREFIX = "temp_token:"
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 
 
 async def _require_auth(request: Request, redis: aioredis.Redis) -> None:
-    """쿠키 → Authorization 헤더 순으로 토큰을 확인합니다."""
-    token = request.cookies.get("user_token")
-    if not token:
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header.removeprefix("Bearer ").strip() or None
-    if not token:
+    """인증 확인. user_token(본 세션) 과 temp_token(가입 전 임시 세션) 을 모두 허용한다.
+
+    /authentication/me 와 동일한 허용 범위를 유지해, 한쪽은 200 다른 쪽은 401 이
+    튀는 UX 혼란을 제거한다.
+    """
+    cookie_keys = list(request.cookies.keys())
+    user_token = request.cookies.get("user_token")
+    temp_token = request.cookies.get("temp_token")
+    auth_header = request.headers.get("authorization", "")
+
+    if not user_token and auth_header.startswith("Bearer "):
+        user_token = auth_header.removeprefix("Bearer ").strip() or None
+
+    print(
+        f"[agent.auth] cookies={cookie_keys} "
+        f"user_token={'set(' + str(len(user_token)) + ')' if user_token else 'none'} "
+        f"temp_token={'set(' + str(len(temp_token)) + ')' if temp_token else 'none'} "
+        f"has_auth_header={bool(auth_header)}"
+    )
+
+    if not user_token and not temp_token:
+        print("[agent.auth] ❌ 토큰 없음 — 401")
         raise AppException(status_code=401, message="인증이 필요합니다.")
-    if not await redis.get(f"{SESSION_KEY_PREFIX}{token}"):
-        raise AppException(status_code=401, message="세션이 만료되었거나 유효하지 않습니다.")
+
+    if user_token:
+        session_val = await redis.get(f"{SESSION_KEY_PREFIX}{user_token}")
+        print(
+            f"[agent.auth] session:{user_token[:8]}... -> "
+            f"{'hit' if session_val else 'miss'}"
+        )
+        if session_val:
+            return
+
+    if temp_token:
+        temp_val = await redis.get(f"{TEMP_TOKEN_KEY_PREFIX}{temp_token}")
+        print(
+            f"[agent.auth] temp_token:{temp_token[:8]}... -> "
+            f"{'hit' if temp_val else 'miss'}"
+        )
+        if temp_val:
+            return
+
+    print("[agent.auth] ❌ 모든 토큰 Redis miss — 401 반환")
+    raise AppException(status_code=401, message="세션이 만료되었거나 유효하지 않습니다.")
 
 
 @router.post(
