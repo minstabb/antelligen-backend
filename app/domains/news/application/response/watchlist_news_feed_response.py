@@ -8,8 +8,8 @@ class WatchlistNewsItem(BaseModel):
     description: Optional[str] = None
     url: str
     published_at: Optional[str] = None
-    stock_code: str
-    stock_name: str
+    stock_code: Optional[str] = None
+    stock_name: Optional[str] = None
 
 
 class WatchlistNewsFeedResponse(BaseModel):

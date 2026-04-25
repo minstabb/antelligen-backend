@@ -37,6 +37,28 @@ class CollectedNewsRepositoryImpl(CollectedNewsRepositoryPort):
         result = await self._db.execute(stmt)
         return [CollectedNewsMapper.to_entity(orm) for orm in result.scalars().all()]
 
+    async def find_all(self, limit: int = 100) -> list[CollectedNews]:
+        stmt = (
+            select(CollectedNewsOrm)
+            .order_by(CollectedNewsOrm.collected_at.desc())
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return [CollectedNewsMapper.to_entity(orm) for orm in result.scalars().all()]
+
+    async def find_by_title_contains(self, keyword: str, limit: int = 10) -> list[CollectedNews]:
+        stmt = (
+            select(CollectedNewsOrm)
+            .where(
+                CollectedNewsOrm.title.ilike(f"%{keyword}%") |
+                CollectedNewsOrm.description.ilike(f"%{keyword}%")
+            )
+            .order_by(CollectedNewsOrm.collected_at.desc())
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return [CollectedNewsMapper.to_entity(orm) for orm in result.scalars().all()]
+
     async def has_recent_news(self, within_seconds: int) -> bool:
         cutoff = datetime.now() - timedelta(seconds=within_seconds)
         stmt = select(CollectedNewsOrm.id).where(CollectedNewsOrm.collected_at >= cutoff).limit(1)

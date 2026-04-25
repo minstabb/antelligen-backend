@@ -18,5 +18,13 @@ class CollectedNewsRepositoryPort(ABC):
         pass
 
     @abstractmethod
+    async def find_all(self, limit: int = 100) -> list[CollectedNews]:
+        pass
+
+    @abstractmethod
+    async def find_by_title_contains(self, keyword: str, limit: int = 10) -> list[CollectedNews]:
+        pass
+
+    @abstractmethod
     async def has_recent_news(self, within_seconds: int) -> bool:
         pass

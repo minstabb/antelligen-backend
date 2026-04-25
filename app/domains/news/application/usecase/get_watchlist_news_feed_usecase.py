@@ -19,12 +19,26 @@ class GetWatchlistNewsFeedUseCase:
         watchlist = await self._watchlist_port.find_all_by_account(account_id)
 
         if not watchlist:
-            return WatchlistNewsFeedResponse(has_watchlist=False, items=[], total=0)
+            all_news = await self._news_repository.find_all(limit=100)
+            items = [
+                WatchlistNewsItem(
+                    title=article.title,
+                    description=article.description,
+                    url=article.url,
+                    published_at=article.published_at,
+                )
+                for article in all_news
+            ]
+            return WatchlistNewsFeedResponse(has_watchlist=False, items=items, total=len(items))
 
         items: list[WatchlistNewsItem] = []
+        seen_urls: set[str] = set()
         for stock in watchlist:
-            articles = await self._news_repository.find_by_keyword(stock.stock_name, limit=10)
+            articles = await self._news_repository.find_by_title_contains(stock.stock_name, limit=10)
             for article in articles:
+                if article.url in seen_urls:
+                    continue
+                seen_urls.add(article.url)
                 items.append(
                     WatchlistNewsItem(
                         title=article.title,
