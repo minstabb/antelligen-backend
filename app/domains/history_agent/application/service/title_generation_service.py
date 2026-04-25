@@ -170,6 +170,8 @@ async def batch_titles(
     system_prompt: str,
     build_line: Callable[[Any], str],
     get_fallback: Optional[Callable[[Any], str]] = None,
+    batch_size: Optional[int] = None,
+    concurrency: Optional[int] = None,
 ) -> List[str]:
     """배치 단위 LLM 호출을 병렬 실행해 타이틀 목록을 반환한다.
 
@@ -178,6 +180,10 @@ async def batch_titles(
     - 레이트리밋 → 지수 backoff로 최대 2회 재시도 (1s, 2s)
     - 타임아웃/기타 → 재시도 없이 fallback
     배치 지연은 실패 이유별 카운터와 함께 로깅한다.
+
+    `batch_size`/`concurrency` 미전달 시 settings 기본값(15/10) 사용.
+    NEWS 요약처럼 배치 내 LLM 처리 시간이 선형 비례하는 경우 작은 배치 + 병렬이
+    유리 → 호출자가 명시 override 가능.
     """
     if not items:
         return []
@@ -186,8 +192,10 @@ async def batch_titles(
     fallbacks = [fallback_fn(item) for item in items]
     llm = get_workflow_llm(model=TITLE_MODEL)
     settings = _settings()
-    concurrency = settings.history_title_concurrency
-    batch_size = settings.history_title_batch_size
+    if concurrency is None:
+        concurrency = settings.history_title_concurrency
+    if batch_size is None:
+        batch_size = settings.history_title_batch_size
     semaphore = asyncio.Semaphore(concurrency)
 
     failure_counts: Dict[str, int] = {"timeout": 0, "json": 0, "rate_limit": 0, "other": 0}

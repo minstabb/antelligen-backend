@@ -290,6 +290,7 @@ async def _enrich_news_details(timeline: List[TimelineEvent]) -> None:
         system_prompt=_NEWS_SUMMARY_BATCH_SYSTEM,
         build_line=lambda e: e.title,
         get_fallback=lambda e: e.title,
+        batch_size=get_settings().history_news_summary_batch_size,
     )
     for event, summary in zip(targets, summaries):
         if not summary:

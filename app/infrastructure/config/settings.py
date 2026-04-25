@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     # History Agent — LLM 타이틀 / causality 튜닝 파라미터 (T2-5)
     history_title_batch_size: int = 15
     history_title_concurrency: int = 10
+    # NEWS 요약은 배치 내 LLM 처리 시간 선형 비례 → 작은 배치 + 병렬이 유리
+    history_news_summary_batch_size: int = 5
     history_causality_pre_days: int = 14
     history_causality_post_days: int = 3
     # T2-1 Phase B: INDEX causality LLM 확장 feature flag.
