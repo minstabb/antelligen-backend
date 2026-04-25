@@ -1,8 +1,9 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.domains.company_profile.domain.entity.company_profile import CompanyProfile
+from app.domains.company_profile.domain.value_object.business_overview import BusinessOverview
 
 
 class CompanyProfileResponse(BaseModel):
@@ -25,8 +26,16 @@ class CompanyProfileResponse(BaseModel):
     est_dt: Optional[str] = None
     acc_mt: Optional[str] = None
 
+    business_summary: Optional[str] = None
+    main_revenue_sources: list[str] = Field(default_factory=list)
+    overview_source: Optional[str] = None  # "rag_summary" | "llm_only" | None
+
     @classmethod
-    def from_entity(cls, profile: CompanyProfile) -> "CompanyProfileResponse":
+    def from_entity(
+        cls,
+        profile: CompanyProfile,
+        overview: Optional[BusinessOverview] = None,
+    ) -> "CompanyProfileResponse":
         return cls(
             corp_code=profile.corp_code,
             corp_name=profile.corp_name,
@@ -46,4 +55,7 @@ class CompanyProfileResponse(BaseModel):
             induty_code=profile.induty_code,
             est_dt=profile.est_dt,
             acc_mt=profile.acc_mt,
+            business_summary=overview.summary if overview else None,
+            main_revenue_sources=list(overview.revenue_sources) if overview else [],
+            overview_source=overview.source if overview else None,
         )

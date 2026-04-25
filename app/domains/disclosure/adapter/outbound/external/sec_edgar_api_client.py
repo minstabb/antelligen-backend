@@ -17,7 +17,9 @@ _FILING_VIEWER_URL = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany
 _DEFAULT_FORM_TYPES = ["8-K", "10-K", "10-Q"]
 _TICKER_CACHE_TTL_SECONDS = 86400  # 24h
 
-_ticker_cache: dict[str, int] = {}
+# {ticker(upper): {"cik": int, "name": str}} — SEC company_tickers.json 메타데이터.
+# 회사명(name)은 company_profile 의 US 분기에서 LLM 입력으로 재사용된다.
+_ticker_cache: dict[str, dict] = {}
 _ticker_cache_expires_at: float = 0.0
 _ticker_cache_lock = asyncio.Lock()
 
@@ -92,17 +94,33 @@ class SecEdgarApiClient(ForeignDisclosureApiPort):
 
         return results
 
-    async def _resolve_cik(self, ticker: str) -> Optional[int]:
-        upper = ticker.upper()
+    async def resolve_company_name(self, ticker: str) -> Optional[str]:
+        """SEC `company_tickers.json` 으로부터 정식 회사명을 조회한다.
+
+        예: "AAPL" → "Apple Inc.". 캐시에 없으면 None.
+        """
         cache = await self._get_or_fetch_ticker_cache()
         if cache is None:
             return None
-        cik = cache.get(upper)
-        if cik is None:
+        entry = cache.get(ticker.upper())
+        if entry is None:
             logger.warning("[SEC EDGAR] ticker '%s' not in company_tickers.json", ticker)
-        return cik
+            return None
+        name = entry.get("name")
+        return name if isinstance(name, str) and name else None
 
-    async def _get_or_fetch_ticker_cache(self) -> Optional[dict[str, int]]:
+    async def _resolve_cik(self, ticker: str) -> Optional[int]:
+        cache = await self._get_or_fetch_ticker_cache()
+        if cache is None:
+            return None
+        entry = cache.get(ticker.upper())
+        if entry is None:
+            logger.warning("[SEC EDGAR] ticker '%s' not in company_tickers.json", ticker)
+            return None
+        cik = entry.get("cik")
+        return cik if isinstance(cik, int) else None
+
+    async def _get_or_fetch_ticker_cache(self) -> Optional[dict[str, dict]]:
         global _ticker_cache, _ticker_cache_expires_at
         now = time.monotonic()
         if _ticker_cache and now < _ticker_cache_expires_at:
@@ -118,11 +136,15 @@ class SecEdgarApiClient(ForeignDisclosureApiPort):
                     resp = await client.get(_TICKERS_URL)
                     resp.raise_for_status()
                     data = resp.json()
-                new_cache: dict[str, int] = {}
+                new_cache: dict[str, dict] = {}
                 for entry in data.values():
                     sym = entry.get("ticker", "").upper()
-                    if sym:
-                        new_cache[sym] = int(entry["cik_str"])
+                    if not sym:
+                        continue
+                    new_cache[sym] = {
+                        "cik": int(entry["cik_str"]),
+                        "name": entry.get("title", "") or "",
+                    }
                 _ticker_cache = new_cache
                 _ticker_cache_expires_at = time.monotonic() + _TICKER_CACHE_TTL_SECONDS
                 logger.info("[SEC EDGAR] ticker cache primed (%d entries)", len(new_cache))
