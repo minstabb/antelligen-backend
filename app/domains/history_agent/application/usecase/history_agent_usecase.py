@@ -856,7 +856,7 @@ class HistoryAgentUseCase:
             await _notify("done", "지원하지 않는 자산 유형입니다", 100)
             response = TimelineResponse(
                 ticker=ticker,
-                period=period,
+                chart_interval=period,
                 count=0,
                 events=[],
                 asset_type=asset_type,
@@ -960,7 +960,7 @@ class HistoryAgentUseCase:
 
         response = TimelineResponse(
             ticker=ticker,
-            period=period,
+            chart_interval=period,
             count=len(timeline),
             events=timeline,
             asset_type=asset_type,
@@ -1032,7 +1032,7 @@ class HistoryAgentUseCase:
 
         response = TimelineResponse(
             ticker=ticker,
-            period=period,
+            chart_interval=period,
             count=len(timeline),
             events=timeline,
             asset_type="INDEX",
@@ -1126,7 +1126,7 @@ class HistoryAgentUseCase:
 
         response = TimelineResponse(
             ticker=ticker,
-            period=period,
+            chart_interval=period,
             count=len(timeline),
             events=timeline,
             is_etf=True,

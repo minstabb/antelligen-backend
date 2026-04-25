@@ -259,7 +259,7 @@ async def get_macro_timeline(
     )
     response = TimelineResponse(
         ticker=None,
-        period=lookback_upper,
+        lookback_range=lookback_upper,
         count=len(events),
         events=events,
         region=region_upper,
@@ -339,7 +339,7 @@ async def stream_macro_timeline(
             )
             response = TimelineResponse(
                 ticker=None,
-                period=lookback_upper,
+                lookback_range=lookback_upper,
                 count=len(events),
                 events=events,
                 region=region_upper,

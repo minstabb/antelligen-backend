@@ -31,7 +31,10 @@ class TimelineEvent(BaseModel):
 class TimelineResponse(BaseModel):
     # 매크로 전용 타임라인은 ticker 없이 region 기반으로도 반환된다.
     ticker: Optional[str] = None
-    period: str
+    # ADR-0001: /timeline 은 chart_interval(봉 단위), /macro-timeline 은 lookback_range(조회 기간).
+    # 시맨틱이 다르므로 단일 period 필드로 합치지 않고 각자 자기 엔드포인트에서만 채운다.
+    chart_interval: Optional[str] = None
+    lookback_range: Optional[str] = None
     count: int
     events: List[TimelineEvent]
     is_etf: bool = False
