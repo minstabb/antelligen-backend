@@ -84,7 +84,6 @@ class YahooFinanceStockClient(StockBarsPort):
             ticker, chart_interval, yf_period, yf_interval,
         )
         candidates = candidate_yfinance_tickers(ticker)
-        last_df = None
         for idx, yf_ticker in enumerate(candidates):
             t = yf.Ticker(yf_ticker)
             df = t.history(period=yf_period, interval=yf_interval)
@@ -97,7 +96,6 @@ class YahooFinanceStockClient(StockBarsPort):
                 info = t.info
                 company_name = info.get("longName") or info.get("shortName") or ticker
                 return company_name, df, yf_ticker
-            last_df = df
         # 모든 후보 실패 (e.g. .KS + .KQ 둘 다 빈 응답)
         raise InvalidTickerException(ticker)
 

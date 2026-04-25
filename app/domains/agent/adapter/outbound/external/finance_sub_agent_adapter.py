@@ -272,7 +272,7 @@ def _format_us_finance_text(ticker: str, ratio, earnings) -> str:
         ]
     if earnings:
         lines += [
-            f"\n[Recent Earnings]",
+            "\n[Recent Earnings]",
             f"Report Date: {earnings.report_date}",
             f"EPS: {earnings.eps}",
             f"Revenue: {earnings.revenue}",

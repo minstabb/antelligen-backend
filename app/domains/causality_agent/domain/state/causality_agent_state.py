@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, TypedDict
 
 
 class Hypothesis(TypedDict):

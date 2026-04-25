@@ -61,7 +61,7 @@ class YoutubeSentimentAnalyzer:
         print(f"[SentimentAnalyzer][유튜브] 분석 시작 | company={company!r} | 전체 댓글={volume}건")
 
         if volume == 0:
-            print(f"[SentimentAnalyzer][유튜브] 댓글 없음 — 빈 결과 반환")
+            print("[SentimentAnalyzer][유튜브] 댓글 없음 — 빈 결과 반환")
             return empty_youtube_sentiment(volume=0)
 
         # 토큰 한계 대응: 최대 _MAX_COMMENTS_FOR_LLM 건 샘플링
@@ -138,7 +138,7 @@ class YoutubeSentimentAnalyzer:
 
             # ── 결과 출력 ───────────────────────────────────────────────────────
             dist_out = metrics["sentiment_distribution"]
-            print(f"[SentimentAnalyzer][유튜브] ✓ 분석 완료")
+            print("[SentimentAnalyzer][유튜브] ✓ 분석 완료")
             print(
                 f"  sentiment_distribution → "
                 f"긍정={dist_out['positive']:.1%} | "

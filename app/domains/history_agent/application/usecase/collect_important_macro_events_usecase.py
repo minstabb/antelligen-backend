@@ -9,8 +9,6 @@ import logging
 from datetime import date, timedelta
 from typing import Awaitable, Callable, List, Optional
 
-ProgressCallback = Callable[[str, str, int], Awaitable[None]]
-
 from app.domains.dashboard.application.port.out.fred_macro_port import FredMacroPort
 from app.domains.dashboard.application.response.economic_event_response import (
     EconomicEventsResponse,
@@ -38,6 +36,8 @@ from app.domains.history_agent.application.service.title_generation_service impo
 )
 from app.domains.history_agent.domain.entity.curated_macro_event import CuratedMacroEvent
 from app.infrastructure.config.settings import get_settings
+
+ProgressCallback = Callable[[str, str, int], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 

@@ -280,10 +280,10 @@ class InvestmentDecisionAnalyzer(InvestmentDecisionPort):
         )
         for r in d["reasons"]["positive"]:
             print(f"    + {r}")
-        print(f"\n  reasons (-):")
+        print("\n  reasons (-):")
         for r in d["reasons"]["negative"]:
             print(f"    - {r}")
-        print(f"\n  risk_factors:")
+        print("\n  risk_factors:")
         for r in d["risk_factors"]:
             print(f"    ⚠ {r}")
         print("  " + "═" * 52)

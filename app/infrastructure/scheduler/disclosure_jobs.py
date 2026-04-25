@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 
 from app.infrastructure.database.database import AsyncSessionLocal
 from app.infrastructure.database.vector_database import VectorAsyncSessionLocal
-from app.infrastructure.cache.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 

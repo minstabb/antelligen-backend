@@ -69,7 +69,7 @@ def _print_retrieved_data(retrieved_data: list) -> None:
                     print(f"       - [{e.get('impact', '?')}] {e.get('event', '')[:60]}")
                 print(f"    ▶ 키워드    {kws}")
         elif status == "ok":
-            print(f"    ▶ signal   없음 (수집 데이터 부족)")
+            print("    ▶ signal   없음 (수집 데이터 부족)")
         else:
             print(f"    ▶ error    {entry.get('error', '')}")
 
@@ -78,7 +78,7 @@ def _print_analysis(analysis_insights: dict) -> None:
     print(f"\n  전망:\n    {analysis_insights.get('outlook', '')}")
     print(f"\n  리스크:\n    {analysis_insights.get('risk', '')}")
     points = analysis_insights.get("investment_points", [])
-    print(f"\n  투자 포인트:")
+    print("\n  투자 포인트:")
     for p in points:
         print(f"    • {p}")
 
@@ -123,13 +123,13 @@ async def main(query: str) -> None:
         print(f"  news_score : {decision.get('news_score', 0):+.4f}")
         print(f"  sent_score : {decision.get('sentiment_score', 0):+.4f}")
         print(f"\n  rationale  : {decision.get('rationale','')}")
-        print(f"\n  reasons (+):")
+        print("\n  reasons (+):")
         for r in decision.get("reasons", {}).get("positive", []):
             print(f"    + {r}")
-        print(f"  reasons (-):")
+        print("  reasons (-):")
         for r in decision.get("reasons", {}).get("negative", []):
             print(f"    - {r}")
-        print(f"  risk_factors:")
+        print("  risk_factors:")
         for r in decision.get("risk_factors", []):
             print(f"    ⚠ {r}")
     else:

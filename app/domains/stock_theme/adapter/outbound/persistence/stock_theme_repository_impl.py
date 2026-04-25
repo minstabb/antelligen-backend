@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.stock_theme.application.port.out.stock_theme_repository_port import StockThemeRepositoryPort
 from app.domains.stock_theme.domain.entity.stock_theme import StockTheme
-from app.domains.stock_theme.infrastructure.mapper.stock_theme_mapper import StockThemeMapper
 from app.domains.stock_theme.infrastructure.orm.stock_theme_orm import StockThemeOrm
 
 

@@ -147,12 +147,12 @@ class LearnStudyVideosUseCase:
             total_candidates=len(target_videos),
             processed_videos=[
                 ProcessedVideoSummary(
-                    video_id=l.video_id,
-                    title=l.title,
-                    program_type=l.program_type.value,
-                    stock_count=len(l.stock_insights),
+                    video_id=learning.video_id,
+                    title=learning.title,
+                    program_type=learning.program_type.value,
+                    stock_count=len(learning.stock_insights),
                 )
-                for l in learnings
+                for learning in learnings
             ],
             message="학습 결과를 저장했습니다." if learnings else "신규 학습 대상 영상이 없습니다.",
         )
@@ -169,23 +169,23 @@ class LearnStudyVideosUseCase:
     @staticmethod
     def _render_markdown(learnings: List[VideoLearning]) -> str:
         blocks: List[str] = []
-        for l in learnings:
+        for learning in learnings:
             block_lines: List[str] = []
-            block_lines.append(f"## [학습프로그램] {l.title}")
+            block_lines.append(f"## [학습프로그램] {learning.title}")
             block_lines.append("")
-            block_lines.append(f"- video_id: `{l.video_id}`")
-            block_lines.append(f"- 채널: {l.channel_name} ({l.channel_id})")
-            block_lines.append(f"- 프로그램: {l.program_type.value}")
-            block_lines.append(f"- 업로드일: {l.published_at.strftime('%Y-%m-%d')}")
-            block_lines.append(f"- 학습일시: {l.collected_at.strftime('%Y-%m-%d %H:%M')}")
+            block_lines.append(f"- video_id: `{learning.video_id}`")
+            block_lines.append(f"- 채널: {learning.channel_name} ({learning.channel_id})")
+            block_lines.append(f"- 프로그램: {learning.program_type.value}")
+            block_lines.append(f"- 업로드일: {learning.published_at.strftime('%Y-%m-%d')}")
+            block_lines.append(f"- 학습일시: {learning.collected_at.strftime('%Y-%m-%d %H:%M')}")
             block_lines.append("")
             block_lines.append("### 핵심 요약")
-            block_lines.append(l.summary.strip() or "(요약 없음)")
+            block_lines.append(learning.summary.strip() or "(요약 없음)")
             block_lines.append("")
 
-            if l.stock_insights:
+            if learning.stock_insights:
                 block_lines.append("### 종목별 인사이트")
-                for insight in l.stock_insights:
+                for insight in learning.stock_insights:
                     block_lines.append(f"#### {insight.stock_name}")
                     block_lines.append(f"- 투자 관점: {insight.investment_view.value}")
                     if insight.key_claims:

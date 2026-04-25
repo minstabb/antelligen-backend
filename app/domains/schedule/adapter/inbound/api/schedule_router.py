@@ -60,7 +60,6 @@ from app.domains.schedule.application.response.economic_event_response import (
     SyncEconomicEventsResponse,
 )
 from app.domains.schedule.application.response.event_impact_analysis_response import (
-    ListEventAnalysisResponse,
     RunEventAnalysisResponse,
 )
 from app.domains.schedule.application.response.investment_info_response import (
@@ -73,9 +72,6 @@ from app.domains.schedule.application.response.schedule_notification_response im
 )
 from app.domains.schedule.application.usecase.get_economic_events_usecase import (
     GetEconomicEventsUseCase,
-)
-from app.domains.schedule.application.usecase.get_event_impact_analysis_usecase import (
-    GetEventImpactAnalysisUseCase,
 )
 from app.domains.schedule.application.usecase.list_schedule_notifications_usecase import (
     ListScheduleNotificationsUseCase,

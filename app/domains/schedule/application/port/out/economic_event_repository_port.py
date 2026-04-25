@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Set
 
 from app.domains.schedule.domain.entity.economic_event import EconomicEvent
 

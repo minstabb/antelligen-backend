@@ -1,7 +1,5 @@
 import logging
 import re
-from datetime import datetime
-from typing import Optional
 
 from app.common.exception.app_exception import AppException
 from app.domains.stock.application.port.stock_repository import StockRepository

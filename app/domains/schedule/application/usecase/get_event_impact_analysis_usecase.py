@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timezone
+from datetime import date
 from typing import Dict, List, Optional
 
 from app.domains.schedule.application.port.out.economic_event_repository_port import (
@@ -11,7 +11,6 @@ from app.domains.schedule.application.response.event_impact_analysis_response im
     EventImpactAnalysisItem,
     ListEventAnalysisResponse,
 )
-from app.domains.schedule.domain.entity.economic_event import EconomicEvent
 
 
 class GetEventImpactAnalysisUseCase:

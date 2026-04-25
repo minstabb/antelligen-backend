@@ -239,13 +239,13 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
 
         # 최대 반복 초과 → 강제 종료
         if iteration > max_iter:
-            print(f"[Orchestrator] 최대 반복 횟수 초과 → 워크플로우 강제 종료")
+            print("[Orchestrator] 최대 반복 횟수 초과 → 워크플로우 강제 종료")
             updates["next_agent"] = "end"
             return updates
 
         # 첫 호출: Query Parser로 질문 파싱 후 State에 기록
         if not state.get("parsed_query"):
-            print(f"[Orchestrator] Query Parser 호출 중...")
+            print("[Orchestrator] Query Parser 호출 중...")
             parsed = await self._query_parser.parse(state.get("user_query", ""))
             updates["parsed_query"] = parsed
             print(
@@ -299,7 +299,7 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         )
 
         if not active_sources:
-            print(f"[Retrieval] 처리 가능한 데이터 소스가 없습니다. 빈 데이터로 진행합니다.")
+            print("[Retrieval] 처리 가능한 데이터 소스가 없습니다. 빈 데이터로 진행합니다.")
             return {"retrieved_data": []}
 
         # ── 타임아웃 적용 병렬 수집 ──────────────────────────────────────────
@@ -406,13 +406,13 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
                 continue
             if source == "뉴스":
                 lines = [item.get("summary_text") or item.get("title", "") for item in items[:5]]
-                parts.append(f"[{source}]\n" + "\n".join(f"- {l}" for l in lines if l))
+                parts.append(f"[{source}]\n" + "\n".join(f"- {line}" for line in lines if line))
             elif source == "유튜브":
                 lines = [
                     f"[{item.get('channel_name', '')}] {item.get('title', '')}"
                     for item in items[:5]
                 ]
-                parts.append(f"[{source}]\n" + "\n".join(f"- {l}" for l in lines if l))
+                parts.append(f"[{source}]\n" + "\n".join(f"- {line}" for line in lines if line))
             else:
                 parts.append(f"[{source}] {len(items)}건 수집")
         return "\n\n".join(parts)
@@ -427,7 +427,7 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         반환 항목마다 summary_text가 포함되어 Retrieval Agent 적재에 바로 사용된다.
         """
         if not self._news_collector:
-            print(f"[Retrieval][뉴스] SERP API 키 미설정 — 빈 결과 반환")
+            print("[Retrieval][뉴스] SERP API 키 미설정 — 빈 결과 반환")
             return []
 
         target = company if company != "전체 시장" else None
@@ -445,7 +445,7 @@ class LangGraphInvestmentWorkflow(InvestmentWorkflowPort):
         published_at은 원본 문자열과 파싱된 datetime 객체를 함께 반환한다.
         """
         if not self._youtube_client:
-            print(f"[Retrieval][유튜브] YouTube API 키 미설정 — 빈 결과 반환")
+            print("[Retrieval][유튜브] YouTube API 키 미설정 — 빈 결과 반환")
             return []
 
         keyword = f"{company} 주식" if company != "전체 시장" else None
@@ -737,7 +737,7 @@ rationale  : {decision['rationale']}
                 "investment_points": list(data.get("investment_points", [])),
             }
         except json.JSONDecodeError:
-            print(f"[AnalysisAgent] JSON 파싱 실패 — 원문 텍스트로 fallback")
+            print("[AnalysisAgent] JSON 파싱 실패 — 원문 텍스트로 fallback")
             analysis_insights = {
                 "outlook": raw,
                 "risk": "",
@@ -883,7 +883,7 @@ rationale  : {decision['rationale']}
 근거와 리스크를 자연스럽게 서술하는 2~4문단 한국어 응답을 작성하세요.
 새로운 사실이나 수치를 추가하지 마세요."""
 
-        print(f"[SynthesisAgent] LLM 호출 중 (경로 A)...")
+        print("[SynthesisAgent] LLM 호출 중 (경로 A)...")
         response = await self._llm.ainvoke([
             ("system", system_prompt),
             ("human", user_prompt),
@@ -926,7 +926,7 @@ rationale  : {decision['rationale']}
 이 결과는 정량 신호 부족으로 참고용 분석에 해당합니다.
 이를 명시하고 2~3문단으로 사용자 친화적 응답을 작성하세요."""
 
-        print(f"[SynthesisAgent] LLM 호출 중 (경로 B fallback)...")
+        print("[SynthesisAgent] LLM 호출 중 (경로 B fallback)...")
         response = await self._llm.ainvoke([
             ("system", system_prompt),
             ("human", user_prompt),

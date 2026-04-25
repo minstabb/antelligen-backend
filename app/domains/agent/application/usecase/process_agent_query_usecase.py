@@ -20,7 +20,6 @@ from app.domains.agent.application.response.integrated_analysis_response import 
 )
 from app.domains.agent.application.response.investment_signal_response import InvestmentSignal
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
-from app.domains.agent.domain.entity.agent_query import AgentQuery, QueryOptions, UserProfile
 from app.domains.agent.domain.value_object.source_tier import SourceTier, default_multiplier
 from app.infrastructure.config.settings import get_settings
 

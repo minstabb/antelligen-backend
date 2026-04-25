@@ -69,7 +69,6 @@ from app.domains.history_agent.application.service.title_generation_service impo
     batch_titles,
     enrich_macro_titles,
     enrich_other_titles,
-    is_fallback_title,
 )
 from app.domains.history_agent.domain.entity.event_enrichment import (
     EventEnrichment,

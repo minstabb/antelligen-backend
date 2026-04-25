@@ -1,7 +1,6 @@
-from typing import Optional
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Cookie, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exception.app_exception import AppException

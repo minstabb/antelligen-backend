@@ -1,6 +1,6 @@
 import logging
 from datetime import date, timedelta
-from typing import List, Optional
+from typing import Optional
 
 from app.domains.history_agent.application.port.out.event_enrichment_repository_port import (
     EventEnrichmentRepositoryPort,

@@ -57,7 +57,7 @@ class NewsSignalAnalyzer:
         print(f"[SignalAnalyzer][뉴스] 분석 시작 | company={company!r} | 유효 기사={len(valid)}건")
 
         if not valid:
-            print(f"[SignalAnalyzer][뉴스] 기사 없음 — 빈 결과 반환")
+            print("[SignalAnalyzer][뉴스] 기사 없음 — 빈 결과 반환")
             return empty_news_signal()
 
         sample = valid[:_MAX_ARTICLES_FOR_LLM]
@@ -126,7 +126,7 @@ class NewsSignalAnalyzer:
             }
 
             # ── 결과 출력 ───────────────────────────────────────────────────────
-            print(f"[SignalAnalyzer][뉴스] ✓ 분석 완료")
+            print("[SignalAnalyzer][뉴스] ✓ 분석 완료")
             print(f"  positive_events ({len(metrics['positive_events'])}건):")
             for e in metrics["positive_events"]:
                 print(f"    [{e['impact'].upper()}] {e['event']}")

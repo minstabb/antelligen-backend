@@ -122,14 +122,12 @@ class RunEventImpactAnalysisUseCase:
         events.sort(key=lambda e: abs((e.event_at.date() - reference_date).days))
         events = events[: request.limit]
 
-        fallback_used = False
         if not events:
             print(
                 "[schedule.analyze] 대상 경제 일정 없음 → 일일 매크로 스냅샷 가상 이벤트로 분석 진행"
             )
             snapshot_event = await self._ensure_daily_snapshot_event(reference_date)
             events = [snapshot_event]
-            fallback_used = True
 
         # 2) 공통 매크로 지표 스냅샷 1회 수집
         try:

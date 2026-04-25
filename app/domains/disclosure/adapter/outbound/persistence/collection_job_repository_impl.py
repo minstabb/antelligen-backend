@@ -13,7 +13,6 @@ from app.domains.disclosure.infrastructure.mapper.collection_job_mapper import (
     CollectionJobItemMapper,
 )
 from app.domains.disclosure.infrastructure.orm.collection_job_orm import CollectionJobOrm
-from app.domains.disclosure.infrastructure.orm.collection_job_item_orm import CollectionJobItemOrm
 
 
 class CollectionJobRepositoryImpl(CollectionJobRepositoryPort):

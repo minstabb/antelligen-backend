@@ -1,5 +1,4 @@
 from sqlalchemy import Integer, DateTime, func
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 from datetime import datetime
 
