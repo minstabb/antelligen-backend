@@ -151,7 +151,16 @@ class CollectImportantMacroEventsUseCase:
         period: str,
         top_n: Optional[int] = None,
         on_progress: Optional[ProgressCallback] = None,
+        lookback_days: Optional[int] = None,
     ) -> List[TimelineEvent]:
+        """매크로 이벤트를 수집한다.
+
+        `lookback_days` 가 주어지면 `_PERIOD_DAYS[period]` 보다 우선 적용 (§13.4 B).
+        chart_interval 기반 timeline 호출은 봉 단위 차트 범위에 맞는 윈도우를
+        명시적으로 전달해야 한다 (예: 1D=365, 1W=1095, 1M=1825, 1Q/1Y=7300).
+        macro-timeline 엔드포인트는 lookback_days 없이 period(1M/3M/.../10Y)
+        의 lookback 시맨틱을 그대로 유지.
+        """
         async def _notify(step: str, label: str, pct: int) -> None:
             if on_progress is None:
                 return
@@ -163,7 +172,10 @@ class CollectImportantMacroEventsUseCase:
         settings = get_settings()
         effective_top_n = top_n if top_n is not None else settings.macro_timeline_top_n
 
-        start_date = _period_to_start_date(period)
+        if lookback_days is not None:
+            start_date = date.today() - timedelta(days=lookback_days)
+        else:
+            start_date = _period_to_start_date(period)
         end_date = date.today()
 
         fred_region = region if region in {"US", "KR"} else "US"

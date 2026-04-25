@@ -178,6 +178,19 @@ _INDEX_REGION: Dict[str, str] = {
 }
 _DEFAULT_INDEX_REGION = "US"
 
+# ── chart_interval → 이벤트 수집 lookback (§13.4 B) ─────────────
+# 봉 단위 차트의 전체 범위에 맞춰 NEWS/MACRO 수집 윈도우를 정렬:
+#   1D 일봉(1년 차트) → 1년 / 1W 주봉(3년) → 3년 / 1M 월봉(5년) → 5년
+#   1Q 분기봉(20년) → 20년 / 1Y(legacy alias for 1Q) → 20년
+_CHART_INTERVAL_LOOKBACK_DAYS: Dict[str, int] = {
+    "1D": 365,
+    "1W": 1_095,
+    "1M": 1_825,
+    "1Q": 7_300,
+    "1Y": 7_300,
+}
+_DEFAULT_CHART_INTERVAL_LOOKBACK_DAYS = 365
+
 # ── ETF → FRED 매크로 리전 매핑 ─────────────────────────────────
 # 모르는 ETF는 _DEFAULT_INDEX_REGION(US)으로 처리.
 _ETF_REGION: Dict[str, str] = {
@@ -1011,11 +1024,15 @@ class HistoryAgentUseCase:
         """CollectImportantMacroEventsUseCase로 curated+서프라이즈+스파이크 Top-N 수집.
 
         usecase 미주입(또는 테스트 환경)이면 구버전 MACRO + MACRO_CONTEXT fallback 경로를 유지한다.
+        §13.4 B: chart_interval 봉 단위 차트 범위에 맞춰 lookback_days 명시 전달.
         """
         if self._collect_macro_events_uc is not None:
+            lookback_days = _CHART_INTERVAL_LOOKBACK_DAYS.get(
+                period.upper(), _DEFAULT_CHART_INTERVAL_LOOKBACK_DAYS,
+            )
             try:
                 return await self._collect_macro_events_uc.execute(
-                    region=region, period=period,
+                    region=region, period=period, lookback_days=lookback_days,
                 )
             except Exception as exc:  # noqa: BLE001
                 # 실패 원인을 구체적으로 드러내고, aborted transaction을 복구해
@@ -1115,13 +1132,18 @@ class HistoryAgentUseCase:
         """NewsEventPort로 뉴스를 수집해 TimelineEvent 로 변환.
 
         포트가 주입되지 않았거나 실패해도 빈 리스트를 반환해 graceful degradation.
+        §13.4 B: chart_interval 봉 단위 차트 범위에 맞춰 lookback_days 명시 전달.
         """
         if self._news_port is None:
             return []
         top_n = get_settings().history_news_top_n
+        lookback_days = _CHART_INTERVAL_LOOKBACK_DAYS.get(
+            period.upper(), _DEFAULT_CHART_INTERVAL_LOOKBACK_DAYS,
+        )
         try:
             items = await self._news_port.fetch_news(
                 ticker=ticker, period=period, region=region, top_n=top_n,  # type: ignore[arg-type]
+                lookback_days=lookback_days,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[HistoryAgent] 뉴스 수집 실패: %s", exc)

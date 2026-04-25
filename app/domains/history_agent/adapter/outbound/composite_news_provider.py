@@ -124,8 +124,12 @@ class CompositeNewsProvider(NewsEventPort):
         period: str,
         region: Region,
         top_n: int = 10,
+        lookback_days: Optional[int] = None,
     ) -> List[NewsItem]:
-        start = _period_to_start(period)
+        if lookback_days is not None:
+            start = date.today() - timedelta(days=lookback_days)
+        else:
+            start = _period_to_start(period)
         end = date.today()
         timeout = get_settings().history_news_per_source_timeout_s
 
