@@ -19,6 +19,9 @@ from app.infrastructure.scheduler.stock_bars_jobs import (
     job_backfill_new_tickers,
     job_collect_stock_bars_daily,
 )
+from app.infrastructure.scheduler.ar_calculation_jobs import (
+    job_calculate_abnormal_returns_daily,
+)
 from app.infrastructure.scheduler.macro_jobs import job_refresh_market_risk
 from app.infrastructure.scheduler.smart_money_jobs import job_collect_investor_flow, job_collect_global_portfolio, job_collect_kr_portfolio
 from app.infrastructure.scheduler.macro_timeline_jobs import job_warmup_macro_timeline
@@ -105,6 +108,16 @@ def create_disclosure_scheduler() -> AsyncIOScheduler:
         name="Collect stock daily OHLCV bars",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+
+    # Daily 08:00 KST — abnormal return 계산 (event_date <= today - 21d)
+    scheduler.add_job(
+        job_calculate_abnormal_returns_daily,
+        trigger=CronTrigger(hour=8, minute=0, timezone=KST),
+        id="calculate_abnormal_returns_daily",
+        name="Calculate event abnormal returns",
+        replace_existing=True,
+        misfire_grace_time=1800,
     )
 
     # Hourly 분-15 — watchlist 신규 ticker lazy backfill
@@ -224,7 +237,7 @@ def create_disclosure_scheduler() -> AsyncIOScheduler:
     )
 
     logger.info(
-        "Disclosure scheduler configured (12 jobs: 2 hourly, 7 daily, 1 monthly, "
+        "Disclosure scheduler configured (13 jobs: 2 hourly, 8 daily, 1 monthly, "
         "1 quarterly+weekly, 3 seasonal)"
     )
     return scheduler
