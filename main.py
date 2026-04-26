@@ -51,6 +51,7 @@ import app.domains.dashboard.infrastructure.orm.nasdaq_bar_orm  # noqa: F401
 import app.domains.history_agent.infrastructure.orm.event_enrichment_orm  # noqa: F401
 import app.domains.stock.market_data.infrastructure.orm.daily_bar_orm  # noqa: F401
 import app.domains.stock.market_data.infrastructure.orm.popular_stock_ticker_orm  # noqa: F401
+import app.domains.stock.market_data.infrastructure.orm.event_impact_metric_orm  # noqa: F401
 import app.domains.smart_money.infrastructure.orm.investor_flow_orm  # noqa: F401
 import app.domains.smart_money.infrastructure.orm.global_portfolio_orm  # noqa: F401
 import app.domains.smart_money.infrastructure.orm.kr_portfolio_orm  # noqa: F401
