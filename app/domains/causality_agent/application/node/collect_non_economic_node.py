@@ -7,6 +7,9 @@ from app.domains.causality_agent.adapter.outbound.external.finnhub_news_client i
 )
 from app.domains.causality_agent.adapter.outbound.external.gdelt_client import GdeltClient
 from app.domains.causality_agent.adapter.outbound.external.gpr_index_client import GprIndexClient
+from app.domains.causality_agent.adapter.outbound.external.naver_korean_news_client import (
+    NaverKoreanNewsClient,
+)
 from app.domains.causality_agent.adapter.outbound.external.related_assets_client import (
     RelatedAssetsClient,
 )
@@ -14,6 +17,8 @@ from app.domains.causality_agent.adapter.outbound.external.yahoo_finance_news_cl
     YahooFinanceNewsClient,
 )
 from app.domains.causality_agent.domain.state.causality_agent_state import CausalityAgentState
+from app.domains.stock.domain.service.market_region_resolver import MarketRegionResolver
+from app.infrastructure.external.korean_company_directory import lookup_korean_name
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +49,16 @@ def _gdelt_keyword(ticker: str) -> str:
 
 
 async def _collect_news(ticker: str, start_date, end_date) -> List[Dict[str, Any]]:
-    """Finnhub(개별 종목) + GDELT(보강)를 병렬 호출하고, 둘 다 비면 yfinance로 fallback.
+    """뉴스 소스를 ticker 종류에 따라 분기 호출.
 
-    지수 티커(IXIC/^GSPC 등)는 Finnhub 미지원이라 스킵하고 GDELT 키워드를 자연어로 매핑.
+    - 한국 종목(005930 / 005930.KS / 005930.KQ): Naver(주) + GDELT 한글 키워드(보조). Finnhub 한국 종목 미지원.
+    - 지수(IXIC/^GSPC): Finnhub 스킵, GDELT 자연어 키워드.
+    - 그 외(미국 개별 종목 등): Finnhub + GDELT 병렬, 모두 비면 yfinance fallback.
     """
+    region = MarketRegionResolver.resolve(ticker)
+    if region.is_korea():
+        return await _collect_news_korean(ticker, start_date, end_date)
+
     is_index = _is_index_ticker(ticker)
     gdelt_keyword = _gdelt_keyword(ticker)
 
@@ -100,6 +111,45 @@ async def _collect_news(ticker: str, start_date, end_date) -> List[Dict[str, Any
     logger.info(
         "[CausalityAgent]   └ 뉴스 소스: finnhub=%d, gdelt=%d, yfinance=%d",
         finnhub_count, gdelt_count, yf_count,
+    )
+    return articles
+
+
+async def _collect_news_korean(ticker: str, start_date, end_date) -> List[Dict[str, Any]]:
+    """한국 종목 전용: Naver(주) + GDELT(한글 회사명 키워드, 보조) 병렬."""
+    korean_name = lookup_korean_name(ticker)
+    gdelt_keyword = korean_name or ticker.upper().split(".")[0]
+
+    logger.info(
+        "[CausalityAgent] 한국 종목(%s) 감지 → Naver 주 소스 + GDELT 보조 (키워드='%s')",
+        ticker, gdelt_keyword,
+    )
+
+    naver_result, gdelt_result = await asyncio.gather(
+        NaverKoreanNewsClient().fetch_articles(ticker, start_date, end_date),
+        GdeltClient().fetch_articles(gdelt_keyword, start_date, end_date),
+        return_exceptions=True,
+    )
+
+    articles: List[Dict[str, Any]] = []
+    naver_count = 0
+    gdelt_count = 0
+
+    if isinstance(naver_result, list):
+        articles.extend(naver_result)
+        naver_count = len(naver_result)
+    elif isinstance(naver_result, Exception):
+        logger.warning("[CausalityAgent] Naver(KR) 예외: %s", naver_result)
+
+    if isinstance(gdelt_result, list):
+        articles.extend(gdelt_result)
+        gdelt_count = len(gdelt_result)
+    elif isinstance(gdelt_result, Exception):
+        logger.warning("[CausalityAgent] GDELT(KR) 예외: %s", gdelt_result)
+
+    logger.info(
+        "[CausalityAgent]   └ 뉴스 소스: naver=%d, gdelt=%d",
+        naver_count, gdelt_count,
     )
     return articles
 

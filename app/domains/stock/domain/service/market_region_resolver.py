@@ -22,6 +22,15 @@ class MarketRegionResolver:
         if ticker.isdigit() and len(ticker) == 6:
             return MarketRegion.KR_KOSPI  # 6자리 숫자 → KR (KOSPI 기본값)
 
+        # Yahoo Finance 표기: `005930.KS` (KOSPI), `005930.KQ` (KOSDAQ)
+        if "." in ticker:
+            code, _, suffix = ticker.partition(".")
+            if code.isdigit() and len(code) == 6:
+                if suffix.upper() == "KS":
+                    return MarketRegion.KR_KOSPI
+                if suffix.upper() == "KQ":
+                    return MarketRegion.KR_KOSDAQ
+
         if ticker.isalpha() and 1 <= len(ticker) <= 5:
             return MarketRegion.US_NASDAQ  # 알파벳 1-5자 → US (NASDAQ 기본값)
 
