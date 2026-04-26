@@ -99,6 +99,45 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             "required": [],
         },
     },
+    {
+        "name": "get_announcements",
+        "description": (
+            "수집된 공시(SEC 8-K) 리스트를 키워드로 필터링해 반환한다. "
+            "DART 한국 공시는 후속 PR에서 추가될 예정. keyword 빈 문자열이면 전체 반환."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "string",
+                    "description": "title 에 포함되어야 할 키워드 (대소문자 무시, 비우면 전체)",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "최대 반환 건수 (기본 10)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_analyst_recommendations",
+        "description": (
+            "수집된 분석가 추천(Finnhub buy/hold/sell 월별 트렌드)을 반환한다. "
+            "최근 N개월 + 직전 달 대비 buy/sell 비율 변화 요약. 미국 종목 한정. "
+            "한국/지수는 빈 결과."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "months": {
+                    "type": "integer",
+                    "description": "최근 N개월만 반환 (기본 6, 0이면 전체)",
+                }
+            },
+            "required": [],
+        },
+    },
 ]
 
 
@@ -220,12 +259,62 @@ def _exec_get_gpr_summary(state: CausalityAgentState, inputs: Dict[str, Any]) ->
     )
 
 
+def _exec_get_announcements(state: CausalityAgentState, inputs: Dict[str, Any]) -> str:
+    keyword = str(inputs.get("keyword", "") or "").lower()
+    max_results = int(inputs.get("max_results", 10))
+    items = state.get("announcements", [])
+    if keyword:
+        items = [a for a in items if keyword in a.get("title", "").lower()]
+    return json.dumps(
+        {
+            "keyword": keyword,
+            "total_matched": len(items),
+            "announcements": items[:max_results],
+        }
+    )
+
+
+def _exec_get_analyst_recommendations(state: CausalityAgentState, inputs: Dict[str, Any]) -> str:
+    months = int(inputs.get("months", 6))
+    recs = list(state.get("analyst_recommendations", []))
+    if not recs:
+        return json.dumps({"available": False})
+
+    # period 내림차순 정렬(최신 우선) — Finnhub 응답이 보통 이미 최신순이지만 보장
+    recs.sort(key=lambda r: str(r.get("period", "")), reverse=True)
+    recent = recs if months <= 0 else recs[:months]
+
+    # 직전 달 대비 buy/sell 변화 요약
+    delta: Dict[str, Any] = {}
+    if len(recent) >= 2:
+        cur, prev = recent[0], recent[1]
+        delta = {
+            "period": cur.get("period"),
+            "prev_period": prev.get("period"),
+            "buy_change": cur.get("buy", 0) - prev.get("buy", 0),
+            "sell_change": cur.get("sell", 0) - prev.get("sell", 0),
+            "strong_buy_change": cur.get("strong_buy", 0) - prev.get("strong_buy", 0),
+            "strong_sell_change": cur.get("strong_sell", 0) - prev.get("strong_sell", 0),
+        }
+
+    return json.dumps(
+        {
+            "available": True,
+            "count": len(recs),
+            "recent": recent,
+            "delta_vs_prev": delta,
+        }
+    )
+
+
 _EXECUTORS = {
     "get_price_stats": _exec_get_price_stats,
     "get_correlated_asset": _exec_get_correlated_asset,
     "fetch_news_headlines": _exec_fetch_news_headlines,
     "get_fred_series": _exec_get_fred_series,
     "get_gpr_summary": _exec_get_gpr_summary,
+    "get_announcements": _exec_get_announcements,
+    "get_analyst_recommendations": _exec_get_analyst_recommendations,
 }
 
 
@@ -265,10 +354,28 @@ def make_langchain_tools(state: CausalityAgentState) -> List[StructuredTool]:
         """GPR(지정학적 리스크) 지수의 평균·최대·최근값·추세를 반환한다."""
         return execute_tool("get_gpr_summary", {}, state)
 
+    def get_announcements(keyword: str = "", max_results: int = 10) -> str:
+        """수집된 공시(SEC 8-K)를 키워드로 필터링해 반환. keyword 비우면 전체. DART 한국 공시는 후속 PR."""
+        return execute_tool(
+            "get_announcements",
+            {"keyword": keyword, "max_results": max_results},
+            state,
+        )
+
+    def get_analyst_recommendations(months: int = 6) -> str:
+        """Finnhub 분석가 buy/hold/sell 월별 트렌드 + 직전 달 대비 변화 요약. 미국 종목 한정."""
+        return execute_tool(
+            "get_analyst_recommendations",
+            {"months": months},
+            state,
+        )
+
     return [
         StructuredTool.from_function(get_price_stats),
         StructuredTool.from_function(get_correlated_asset),
         StructuredTool.from_function(fetch_news_headlines),
         StructuredTool.from_function(get_fred_series),
         StructuredTool.from_function(get_gpr_summary),
+        StructuredTool.from_function(get_announcements),
+        StructuredTool.from_function(get_analyst_recommendations),
     ]

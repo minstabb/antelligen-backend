@@ -17,6 +17,10 @@ from app.domains.causality_agent.adapter.outbound.external.yahoo_finance_news_cl
     YahooFinanceNewsClient,
 )
 from app.domains.causality_agent.domain.state.causality_agent_state import CausalityAgentState
+# SEC EDGAR client는 dashboard 도메인에 위치 (history_agent 도 같은 패턴으로 재사용 중).
+from app.domains.dashboard.adapter.outbound.external.sec_edgar_announcement_client import (
+    SecEdgarAnnouncementClient,
+)
 from app.domains.stock.domain.service.market_region_resolver import MarketRegionResolver
 from app.infrastructure.external.korean_company_directory import lookup_korean_name
 
@@ -154,20 +158,75 @@ async def _collect_news_korean(ticker: str, start_date, end_date) -> List[Dict[s
     return articles
 
 
+async def _collect_announcements(ticker: str, start_date, end_date) -> List[Dict[str, Any]]:
+    """SEC EDGAR 8-K 공시 수집. 미국 종목만 의미 있고, non-US ticker 는 client 자체가 빈 배열 반환.
+
+    DART 한국 공시는 ticker→corp_code 사전 매핑이 필요(P1.5 후속). 본 함수는 SEC만 처리.
+    """
+    try:
+        events = await SecEdgarAnnouncementClient().fetch_announcements(
+            ticker=ticker, start_date=start_date, end_date=end_date,
+        )
+    except Exception as exc:
+        logger.warning("[CausalityAgent] SEC EDGAR 공시 예외: %s", exc)
+        return []
+
+    items: List[Dict[str, Any]] = []
+    for ev in events:
+        items.append({
+            "date": ev.date.isoformat(),
+            "type": ev.type.value if hasattr(ev.type, "value") else str(ev.type),
+            "title": ev.title or "",
+            "source": ev.source or "sec_edgar",
+            "url": ev.url or "",
+            "items_str": getattr(ev, "items_str", "") or "",
+        })
+    return items
+
+
+async def _collect_analyst_recommendations(ticker: str) -> List[Dict[str, Any]]:
+    """Finnhub buy/hold/sell 월별 트렌드. 미국 종목만 의미. API 키 없거나 비-US 면 빈 배열."""
+    region = MarketRegionResolver.resolve(ticker)
+    if region.is_korea() or _is_index_ticker(ticker):
+        return []
+    try:
+        raw = await FinnhubNewsClient().get_recommendation_trend(ticker)
+    except Exception as exc:
+        logger.warning("[CausalityAgent] Finnhub recommendation 예외: %s", exc)
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        out.append({
+            "period": rec.get("period", ""),
+            "buy": int(rec.get("buy", 0) or 0),
+            "hold": int(rec.get("hold", 0) or 0),
+            "sell": int(rec.get("sell", 0) or 0),
+            "strong_buy": int(rec.get("strongBuy", 0) or 0),
+            "strong_sell": int(rec.get("strongSell", 0) or 0),
+        })
+    return out
+
+
 async def collect_non_economic(state: CausalityAgentState) -> Dict[str, Any]:
-    """VIX·원유·금·미국채·엔화 + 뉴스(Finnhub/GDELT/yfinance) + GPR 을 병렬로 수집한다."""
+    """VIX·원유·금·미국채·엔화 + 뉴스 + GPR + SEC 공시 + 분석가 추천을 병렬 수집한다."""
     ticker = state["ticker"]
     start_date = state["start_date"]
     end_date = state["end_date"]
     errors: list = list(state.get("errors", []))
 
-    logger.info("[CausalityAgent] [2/3] 연관자산 + 뉴스 + GPR 수집 시작")
+    logger.info("[CausalityAgent] [2/3] 연관자산 + 뉴스 + GPR + 공시 + 분석가 추천 수집 시작")
     related_task = RelatedAssetsClient().fetch(start_date, end_date)
     news_task = _collect_news(ticker, start_date, end_date)
     gpr_task = GprIndexClient().fetch(start_date, end_date)
+    announcements_task = _collect_announcements(ticker, start_date, end_date)
+    rec_task = _collect_analyst_recommendations(ticker)
 
-    related_result, news_result, gpr_result = await asyncio.gather(
-        related_task, news_task, gpr_task, return_exceptions=True
+    related_result, news_result, gpr_result, ann_result, rec_result = await asyncio.gather(
+        related_task, news_task, gpr_task, announcements_task, rec_task,
+        return_exceptions=True,
     )
 
     related_assets: list = []
@@ -194,15 +253,35 @@ async def collect_non_economic(state: CausalityAgentState) -> Dict[str, Any]:
     else:
         gpr_observations = gpr_result
 
+    announcements: list = []
+    if isinstance(ann_result, Exception):
+        msg = f"공시 수집 실패: {ann_result}"
+        logger.warning("[CausalityAgent] %s", msg)
+        errors.append(msg)
+    else:
+        announcements = ann_result
+
+    analyst_recommendations: list = []
+    if isinstance(rec_result, Exception):
+        msg = f"분석가 추천 수집 실패: {rec_result}"
+        logger.warning("[CausalityAgent] %s", msg)
+        errors.append(msg)
+    else:
+        analyst_recommendations = rec_result
+
     logger.info(
-        "[CausalityAgent] [2/3] 완료: assets=%d, news=%d, gpr=%d",
+        "[CausalityAgent] [2/3] 완료: assets=%d, news=%d, gpr=%d, ann=%d, rec=%d",
         len(related_assets),
         len(news_articles),
         len(gpr_observations),
+        len(announcements),
+        len(analyst_recommendations),
     )
     return {
         "related_assets": related_assets,
         "news_articles": news_articles,
         "gpr_observations": gpr_observations,
+        "announcements": announcements,
+        "analyst_recommendations": analyst_recommendations,
         "errors": errors,
     }
