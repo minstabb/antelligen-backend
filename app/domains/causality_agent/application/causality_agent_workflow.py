@@ -58,6 +58,8 @@ async def run_causality_agent(
         "related_assets": [],
         "news_articles": [],
         "gpr_observations": [],
+        "announcements": [],
+        "analyst_recommendations": [],
         "hypotheses": [],
         "tool_call_log": [],
         "errors": [],
@@ -68,13 +70,15 @@ async def run_causality_agent(
     result = await _compiled.ainvoke(initial)
     logger.info(
         "[CausalityAgent] 완료: ticker=%s, ohlcv=%d, fred=%d, assets=%d, "
-        "news=%d, gpr=%d, hypotheses=%d, tools=%s, errors=%d",
+        "news=%d, gpr=%d, ann=%d, rec=%d, hypotheses=%d, tools=%s, errors=%d",
         ticker,
         len(result.get("ohlcv_bars", [])),
         len(result.get("fred_series", [])),
         len(result.get("related_assets", [])),
         len(result.get("news_articles", [])),
         len(result.get("gpr_observations", [])),
+        len(result.get("announcements", [])),
+        len(result.get("analyst_recommendations", [])),
         len(result.get("hypotheses", [])),
         result.get("tool_call_log", []),
         len(result.get("errors", [])),

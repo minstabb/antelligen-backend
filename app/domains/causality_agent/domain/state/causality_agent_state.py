@@ -49,6 +49,24 @@ class GprObservation(TypedDict):
     gpr: float
 
 
+class AnnouncementItem(TypedDict, total=False):
+    date: str         # "YYYY-MM-DD"
+    type: str         # AnnouncementEventType.value (MERGER_ACQUISITION, EARNINGS_RELEASE, ...)
+    title: str        # 공시명/8-K Item 본문 요약
+    source: str       # "sec_edgar" | "dart"
+    url: str
+    items_str: str    # SEC 8-K Item 코드(예: "1.01,9.01"). DART 는 부재
+
+
+class AnalystRecommendation(TypedDict, total=False):
+    period: str       # "YYYY-MM-DD" (월 1일 기준)
+    buy: int
+    hold: int
+    sell: int
+    strong_buy: int
+    strong_sell: int
+
+
 class CausalityAgentState(TypedDict):
     # ── 입력 ──────────────────────────────────────────────────
     ticker: str
@@ -61,8 +79,10 @@ class CausalityAgentState(TypedDict):
 
     # ── collect_non_economic 노드 출력 ────────────────────────
     related_assets: List[RelatedAssetBar]  # VIX·원유·금·미국채·엔화
-    news_articles: List[NewsArticle]       # Finnhub + GDELT + yfinance fallback
+    news_articles: List[NewsArticle]       # Finnhub + GDELT + yfinance fallback + Naver(KR)
     gpr_observations: List[GprObservation]
+    announcements: List[AnnouncementItem]  # SEC EDGAR 8-K 공시 (미국). DART 는 별도 후속 PR.
+    analyst_recommendations: List[AnalystRecommendation]  # Finnhub buy/hold/sell 월별 트렌드 (미국)
 
     # ── generate_hypotheses 노드 출력 ────────────────────────
     hypotheses: List[Hypothesis]
