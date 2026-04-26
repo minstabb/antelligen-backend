@@ -14,7 +14,7 @@ import logging
 import math
 import statistics
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from app.domains.dashboard.application.port.out.stock_bars_port import StockBarsPort
 from app.domains.dashboard.domain.entity.stock_bar import StockBar
@@ -56,6 +56,37 @@ def _compute_returns(bars: List[StockBar]) -> list[float]:
             continue
         returns.append(bars[i].close / prev_close - 1.0)
     return returns
+
+
+def _volume_ratio(bars: List[StockBar], idx: int, window: int) -> Optional[float]:
+    """idx 봉의 거래량을 직전 window 봉 평균 대비 배수로 환산. 평균이 0/window 부족이면 None."""
+    if idx < window:
+        return None
+    window_volumes = [bars[j].volume for j in range(idx - window, idx) if bars[j].volume > 0]
+    if not window_volumes:
+        return None
+    avg = sum(window_volumes) / len(window_volumes)
+    if avg <= 0:
+        return None
+    return round(bars[idx].volume / avg, 4)
+
+
+def _time_of_day(bars: List[StockBar], idx: int, chart_interval: str) -> Optional[str]:
+    """일봉(1D)에서만 갭/장중 근사. |open-prev_close| > |close-open| → "GAP".
+
+    분봉 미수집 환경의 best-effort 근사. 주/월/분기봉은 의미가 없어 None.
+    """
+    if chart_interval != "1D" or idx <= 0:
+        return None
+    bar = bars[idx]
+    prev_close = bars[idx - 1].close
+    if prev_close <= 0:
+        return None
+    gap = abs(bar.open - prev_close)
+    intraday = abs(bar.close - bar.open)
+    if gap == 0 and intraday == 0:
+        return None
+    return "GAP" if gap > intraday else "INTRADAY"
 
 
 def detect_anomalies(
@@ -106,6 +137,8 @@ def detect_anomalies(
             z_score=round(z, 4),
             direction="up" if ret_pct > 0 else "down",
             close=round(bars[idx].close, 4),
+            volume_ratio=_volume_ratio(bars, idx, params.window),
+            time_of_day=_time_of_day(bars, idx, chart_interval),
             causality=None,
         )
         for idx, ret_pct, z in top
