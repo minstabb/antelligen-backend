@@ -10,6 +10,9 @@ from app.domains.causality_agent.application.node.gather_situation_node import g
 from app.domains.causality_agent.application.node.generate_hypotheses_node import (
     generate_hypotheses,
 )
+from app.domains.causality_agent.application.node.validate_hypotheses_node import (
+    validate_hypotheses,
+)
 from app.domains.causality_agent.domain.state.causality_agent_state import CausalityAgentState
 
 logger = logging.getLogger(__name__)
@@ -17,6 +20,7 @@ logger = logging.getLogger(__name__)
 _NODE_SITUATION = "gather_situation"
 _NODE_NON_ECONOMIC = "collect_non_economic"
 _NODE_HYPOTHESES = "generate_hypotheses"
+_NODE_VALIDATE = "validate_hypotheses"
 
 
 def _build_graph() -> StateGraph:
@@ -24,13 +28,15 @@ def _build_graph() -> StateGraph:
     g.add_node(_NODE_SITUATION, gather_situation)
     g.add_node(_NODE_NON_ECONOMIC, collect_non_economic)
     g.add_node(_NODE_HYPOTHESES, generate_hypotheses)
+    g.add_node(_NODE_VALIDATE, validate_hypotheses)
 
-    # gather_situation → collect_non_economic → generate_hypotheses
+    # gather_situation → collect_non_economic → generate_hypotheses → validate_hypotheses
     g.add_edge(_NODE_SITUATION, _NODE_NON_ECONOMIC)
     g.add_edge(_NODE_NON_ECONOMIC, _NODE_HYPOTHESES)
+    g.add_edge(_NODE_HYPOTHESES, _NODE_VALIDATE)
 
     g.set_entry_point(_NODE_SITUATION)
-    g.set_finish_point(_NODE_HYPOTHESES)
+    g.set_finish_point(_NODE_VALIDATE)
     return g
 
 
