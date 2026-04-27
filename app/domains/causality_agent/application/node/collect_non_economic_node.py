@@ -165,10 +165,19 @@ async def _collect_news_korean(ticker: str, start_date, end_date) -> List[Dict[s
 
 
 async def _collect_announcements(ticker: str, start_date, end_date) -> List[Dict[str, Any]]:
-    """SEC EDGAR 8-K 공시 수집. 미국 종목만 의미 있고, non-US ticker 는 client 자체가 빈 배열 반환.
+    """공시 수집 — region 분기 (OKR 1 P1.5).
 
-    DART 한국 공시는 ticker→corp_code 사전 매핑이 필요(P1.5 후속). 본 함수는 SEC만 처리.
+    - 한국 종목 (.KS/.KQ/6자리 숫자): DART list.json (corp_code 매핑 후)
+    - 미국 종목 (영문): SEC EDGAR 8-K
     """
+    region = MarketRegionResolver.resolve(ticker)
+    if region.is_korea():
+        return await _collect_dart_announcements(ticker, start_date, end_date)
+    return await _collect_sec_announcements(ticker, start_date, end_date)
+
+
+async def _collect_sec_announcements(ticker: str, start_date, end_date) -> List[Dict[str, Any]]:
+    """SEC EDGAR 8-K — 미국 종목."""
     try:
         events = await SecEdgarAnnouncementClient().fetch_announcements(
             ticker=ticker, start_date=start_date, end_date=end_date,
@@ -188,6 +197,32 @@ async def _collect_announcements(ticker: str, start_date, end_date) -> List[Dict
             "items_str": getattr(ev, "items_str", "") or "",
         })
     return items
+
+
+async def _collect_dart_announcements(ticker: str, start_date, end_date) -> List[Dict[str, Any]]:
+    """DART list.json — 한국 종목. corp_code 매핑 실패 시 빈 배열 (graceful)."""
+    from app.domains.causality_agent.adapter.outbound.external.dart_announcement_client import (
+        DartAnnouncementClient,
+    )
+    from app.infrastructure.cache.redis_client import redis_client
+    from app.infrastructure.external.corp_code_mapper import ticker_to_corp_code
+
+    corp_code = await ticker_to_corp_code(ticker, redis_client=redis_client)
+    if not corp_code:
+        logger.warning(
+            "[CausalityAgent] DART corp_code 매핑 실패 — ticker=%s (영문/미정의 종목 또는 DART 누락)",
+            ticker,
+        )
+        return []
+
+    try:
+        return await DartAnnouncementClient().fetch_announcements(
+            ticker=ticker, corp_code=corp_code,
+            start_date=start_date, end_date=end_date,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[CausalityAgent] DART 공시 예외: %s", exc)
+        return []
 
 
 async def _collect_analyst_recommendations(ticker: str) -> List[Dict[str, Any]]:
