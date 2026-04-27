@@ -464,3 +464,69 @@ def test_cluster_skipped_in_dedup_when_zscore_on_same_day():
     same_day = [e for e in merged if e.date == bars[61].bar_date]
     assert len(same_day) == 1
     assert same_day[0].type == "zscore"
+
+
+# ── KR7: 사용자 floor override 슬라이더 ──────────────────────
+
+
+def test_floor_override_lowers_kospi_threshold():
+    """`floor_pct_override=3.0` 이면 KOSPI 종목에서 3.5% 변동도 탐지(기본 5% 보다 낮음)."""
+    closes = [100.0] * 61
+    closes.append(103.5)  # +3.5%
+    bars = _make_bars(closes)
+    # override 없이는 KOSPI floor=5% 미만 → 탐지 X
+    assert detect_anomalies(bars, "1D", "005930.KS") == []
+    # override 3% → 탐지 1건
+    overridden = detect_anomalies(bars, "1D", "005930.KS", floor_pct_override=3.0)
+    assert len(overridden) == 1
+    assert overridden[0].type == "zscore"
+
+
+def test_floor_override_raises_kosdaq_threshold():
+    """`floor_pct_override=10.0` 이면 KOSDAQ 8% 변동은 미탐지(기본 7% 보다 높임)."""
+    closes = [100.0] * 61
+    closes.append(108.0)  # +8%
+    bars = _make_bars(closes)
+    # override 없이는 KOSDAQ floor=7% 초과 → 탐지
+    assert len(detect_anomalies(bars, "1D", "068270.KQ")) == 1
+    # override 10% → 탐지 X
+    assert detect_anomalies(bars, "1D", "068270.KQ", floor_pct_override=10.0) == []
+
+
+def test_floor_override_none_keeps_ticker_group_default():
+    """override=None 일 때 기존 종목 군 분류 그대로(KOSPI 5% / KOSDAQ 7% / US 5%)."""
+    closes = [100.0] * 61
+    closes.append(106.5)  # +6.5%
+    bars = _make_bars(closes)
+    # KOSPI floor=5% → 탐지
+    assert len(detect_anomalies(bars, "1D", "005930.KS", floor_pct_override=None)) == 1
+    # KOSDAQ floor=7% → 미탐지
+    assert detect_anomalies(bars, "1D", "068270.KQ", floor_pct_override=None) == []
+
+
+def test_floor_override_applies_to_non_daily_intervals():
+    """override 는 봉 단위 무관하게 적용 — 1W 봉도 사용자 의도 우선(기본 floor 무시)."""
+    # _PARAMS_BY_INTERVAL["1W"].floor_pct = 3.0
+    # 1W window=52 → 53봉 이상 필요. +2.5% 변동이면 기본 3% 미만이라 탐지 X.
+    # override 2.0% 면 탐지.
+    closes = [100.0] * 53
+    closes.append(102.5)
+    bars = _make_bars(closes)
+    # 기본: floor=3% → 미탐지
+    assert detect_anomalies(bars, "1W", "AAPL") == []
+    # override 2% → 탐지
+    overridden = detect_anomalies(bars, "1W", "AAPL", floor_pct_override=2.0)
+    assert len(overridden) == 1
+
+
+def test_floor_override_only_affects_zscore_not_cumulative():
+    """floor override 는 z-score floor 만 조정 — 누적 임계(±10%) 무관."""
+    # 5봉 사이 +12% → 누적 5d 트리거. 단일봉도 +12% (z-score).
+    closes = [100.0] * 21 + [112.0]
+    bars = _make_bars(closes)
+    # override=15% (단일봉 12%는 z-score 미달이지만, 누적 5d 12% > 10% → 누적은 잡힘)
+    events = detect_anomalies(bars, "1D", "AAPL", floor_pct_override=15.0)
+    types = [e.type for e in events]
+    # z-score 단일봉은 floor=15% 미달 → 누적 5d 만 잡혀야 함
+    assert "zscore" not in types
+    assert "cumulative_5d" in types

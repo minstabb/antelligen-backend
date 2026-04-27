@@ -401,6 +401,13 @@ async def stream_macro_timeline(
 async def get_anomaly_bars(
     ticker: str = Query(..., description="종목 코드"),
     chart_interval: str = Query("1D", alias="chartInterval", description="봉 단위: 1D | 1W | 1M | 1Q (1Y는 1Q로 자동 정규화)"),
+    floor_pct: Optional[float] = Query(
+        None,
+        alias="floorPct",
+        ge=0.5,
+        le=20.0,
+        description="사용자 지정 floor (%) — None 이면 종목 군 기본값(KOSPI 5/KOSDAQ 7/US 5)",
+    ),
 ):
     """차트 이상치 봉(★ 마커 대상)을 반환합니다. §13.4 C 설계로 PRICE 카테고리를 대체.
 
@@ -415,7 +422,11 @@ async def get_anomaly_bars(
 
     ticker = normalize_yfinance_ticker(ticker.upper())
     usecase = DetectAnomalyBarsUseCase(stock_bars_port=YahooFinanceStockClient())
-    result = await usecase.execute(ticker=ticker, chart_interval=effective)
+    result = await usecase.execute(
+        ticker=ticker,
+        chart_interval=effective,
+        floor_pct_override=floor_pct,
+    )
     return BaseResponse.ok(data=result)
 
 

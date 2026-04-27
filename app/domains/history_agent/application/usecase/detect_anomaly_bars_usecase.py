@@ -68,8 +68,20 @@ def _classify_ticker_group(ticker: str) -> str:
     return "US"
 
 
-def _floor_pct_for(chart_interval: str, ticker: str, default: float) -> float:
-    """1D 면 종목 군별 floor 우선, 그 외 봉 단위는 default(`_PARAMS_BY_INTERVAL`) 그대로."""
+def _floor_pct_for(
+    chart_interval: str,
+    ticker: str,
+    default: float,
+    override: Optional[float] = None,
+) -> float:
+    """floor 결정 우선순위:
+
+    1. `override` 가 주어지면 사용자 명시 의도 → 종목 군/봉 단위 분류 모두 무시
+    2. 1D 면 종목 군별 floor (`_FLOOR_BY_TICKER_GROUP_1D`)
+    3. 그 외 봉 단위는 default(`_PARAMS_BY_INTERVAL`) 그대로
+    """
+    if override is not None:
+        return override
     if chart_interval != "1D":
         return default
     return _FLOOR_BY_TICKER_GROUP_1D.get(_classify_ticker_group(ticker), default)
@@ -197,7 +209,10 @@ def _resolve_sigma_method() -> str:
 
 
 def _detect_zscore_anomalies(
-    bars: List[StockBar], chart_interval: str, ticker: str,
+    bars: List[StockBar],
+    chart_interval: str,
+    ticker: str,
+    floor_pct_override: Optional[float] = None,
 ) -> List[AnomalyBarResponse]:
     """단일봉 z-score 탐지 (기존 로직 + KR1 종목 군별 floor + KR4 robust σ)."""
     params = _PARAMS_BY_INTERVAL.get(chart_interval)
@@ -209,7 +224,7 @@ def _detect_zscore_anomalies(
 
     returns = _compute_returns(bars)
     candidates: list[tuple[int, float, float]] = []  # (idx, return_pct, z_score)
-    floor_abs = _floor_pct_for(chart_interval, ticker, params.floor_pct) / 100.0
+    floor_abs = _floor_pct_for(chart_interval, ticker, params.floor_pct, override=floor_pct_override) / 100.0
     sigma_method = _resolve_sigma_method()
 
     for i in range(params.window, len(returns)):
@@ -461,7 +476,10 @@ def _detect_volatility_cluster_anomalies(
 
 
 def detect_anomalies(
-    bars: List[StockBar], chart_interval: str, ticker: str = "",
+    bars: List[StockBar],
+    chart_interval: str,
+    ticker: str = "",
+    floor_pct_override: Optional[float] = None,
 ) -> List[AnomalyBarResponse]:
     """순수 함수 — bars + interval + ticker → 이상치 봉 목록.
 
@@ -472,8 +490,11 @@ def detect_anomalies(
     날짜 오름차순 정렬.
 
     `ticker` default `""` 는 backward-compat — 종목 군 분류 없이 미국(US) fallback.
+    `floor_pct_override` 는 KR7 슬라이더용 — z-score floor 만 override (누적/drawdown 무관).
     """
-    zscore_events = _detect_zscore_anomalies(bars, chart_interval, ticker)
+    zscore_events = _detect_zscore_anomalies(
+        bars, chart_interval, ticker, floor_pct_override=floor_pct_override,
+    )
     cumulative_events = _detect_cumulative_anomalies(bars, chart_interval)
     drawdown_events = _detect_drawdown_anomalies(bars, chart_interval)
     cluster_events = _detect_volatility_cluster_anomalies(bars, chart_interval)
@@ -513,12 +534,17 @@ class DetectAnomalyBarsUseCase:
         self._stock_bars_port = stock_bars_port
 
     async def execute(
-        self, ticker: str, chart_interval: str
+        self,
+        ticker: str,
+        chart_interval: str,
+        floor_pct_override: Optional[float] = None,
     ) -> AnomalyBarsResponse:
         _, bars = await self._stock_bars_port.fetch_stock_bars(
             ticker=ticker, chart_interval=chart_interval
         )
-        events = detect_anomalies(bars, chart_interval, ticker)
+        events = detect_anomalies(
+            bars, chart_interval, ticker, floor_pct_override=floor_pct_override,
+        )
         counts = {
             "zscore": sum(1 for e in events if e.type == "zscore"),
             "cumulative_5d": sum(1 for e in events if e.type == "cumulative_5d"),
@@ -528,8 +554,8 @@ class DetectAnomalyBarsUseCase:
             "volatility_cluster": sum(1 for e in events if e.type == "volatility_cluster"),
         }
         logger.info(
-            "[DetectAnomalyBars] ticker=%s chart_interval=%s bars=%d anomalies=%d %s",
-            ticker, chart_interval, len(bars), len(events), counts,
+            "[DetectAnomalyBars] ticker=%s chart_interval=%s bars=%d anomalies=%d floor_override=%s %s",
+            ticker, chart_interval, len(bars), len(events), floor_pct_override, counts,
         )
         return AnomalyBarsResponse(
             ticker=ticker,
