@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 import uuid
 from typing import Optional
@@ -11,6 +12,9 @@ from app.domains.agent.application.port.integrated_analysis_repository_port impo
 from app.domains.agent.application.port.llm_synthesis_port import LlmSynthesisPort
 from app.domains.agent.application.port.news_agent_port import NewsAgentPort
 from app.domains.agent.application.request.agent_query_request import AgentQueryRequest
+from app.domains.agent.application.response.agent_business_overview import (
+    AgentBusinessOverview,
+)
 from app.domains.agent.application.response.agent_query_response import (
     AgentQueryResponse,
     QueryResultStatus,
@@ -21,7 +25,14 @@ from app.domains.agent.application.response.integrated_analysis_response import 
 from app.domains.agent.application.response.investment_signal_response import InvestmentSignal
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
 from app.domains.agent.domain.value_object.source_tier import SourceTier, default_multiplier
+from app.domains.company_profile.application.usecase.get_company_profile_usecase import (
+    GetCompanyProfileUseCase,
+)
+from app.domains.company_profile.domain.entity.company_profile import CompanyProfile
+from app.domains.company_profile.domain.value_object.business_overview import BusinessOverview
 from app.infrastructure.config.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TICKER = "005930"
 
@@ -40,23 +51,31 @@ class ProcessAgentQueryUseCase:
         finance_agent: FinanceAgentPort,
         llm_synthesis: LlmSynthesisPort,
         repository: Optional[IntegratedAnalysisRepositoryPort] = None,
+        company_profile_usecase: Optional[GetCompanyProfileUseCase] = None,
     ) -> None:
         self._news = news_agent
         self._disclosure = disclosure_agent
         self._finance = finance_agent
         self._llm_synthesis = llm_synthesis
         self._repository = repository
+        # 회사 사업 개요 (선택) — None 이면 응답에서 business_overview 가 빠진다.
+        self._company_profile_usecase = company_profile_usecase
 
     async def execute(self, request: AgentQueryRequest) -> AgentQueryResponse:
         start = time.monotonic()
         ticker = request.ticker or DEFAULT_TICKER
         session_id = request.session_id or str(uuid.uuid4())
 
+        # 회사 사업 개요는 별도 캐시(7일 Redis) 라 통합분석 1시간 캐시와 독립적으로 늘 fetch.
+        # 캐시 hit/miss 어느 쪽 경로든 응답에 attach 한다.
+        overview_task = asyncio.create_task(self._fetch_overview_pair(ticker))
+
         # 1. PostgreSQL 캐시 확인 (1시간 이내 결과 재사용)
         if self._repository:
             cached = await self._repository.find_recent(ticker, within_seconds=3600)
             if cached:
-                return self._from_cached(cached, session_id)
+                _, overview_dto = await overview_task
+                return self._from_cached(cached, session_id, overview_dto)
 
         # 2. 3개 서브에이전트 병렬 호출 (하나 실패해도 계속)
         news_r, disclosure_r, finance_r = await asyncio.gather(
@@ -75,16 +94,21 @@ class ProcessAgentQueryUseCase:
         # 3. 시그널 가중 집계
         overall_signal, overall_confidence = self._aggregate_signals(agent_results)
 
-        # 4. LLM 종합 요약 생성
+        # 4. 사업 개요 await (이미 끝났을 가능성 높음) → LLM 컨텍스트로 함께 주입
+        profile_overview, overview_dto = await overview_task
+        profile, overview_vo = profile_overview if profile_overview else (None, None)
+
         summary, key_points = await self._llm_synthesis.synthesize(
             ticker=ticker,
             query=request.query,
             sub_results=agent_results,
+            business_overview=overview_vo,
+            corp_name=profile.corp_name if profile else None,
         )
 
         elapsed = int((time.monotonic() - start) * 1000)
 
-        # 5. PostgreSQL에 저장 (전체 성공일 때만 캐시)
+        # 5. PostgreSQL에 저장 (전체 성공일 때만 캐시) — overview 는 ORM 컬럼 미존재로 미저장
         result_status = AgentQueryResponse.determine_status(agent_results)
         if self._repository and result_status == QueryResultStatus.SUCCESS:
             integrated = IntegratedAnalysisResponse(
@@ -105,11 +129,37 @@ class ProcessAgentQueryUseCase:
             answer=summary,
             agent_results=agent_results,
             total_execution_time_ms=elapsed,
+            business_overview=overview_dto,
         )
 
     # ------------------------------------------------------------------
     # 내부 헬퍼
     # ------------------------------------------------------------------
+
+    async def _fetch_overview_pair(
+        self, ticker: str
+    ) -> tuple[
+        Optional[tuple[Optional[CompanyProfile], Optional[BusinessOverview]]],
+        Optional[AgentBusinessOverview],
+    ]:
+        """회사 사업 개요 fetch — graceful 실패. (raw_pair, dto) 반환.
+
+        raw_pair: LLM 컨텍스트 주입용 (CompanyProfile + BusinessOverview VO)
+        dto: 응답 직렬화용 AgentBusinessOverview
+        """
+        if self._company_profile_usecase is None:
+            return None, None
+        try:
+            profile, overview = await self._company_profile_usecase.execute(ticker)
+        except Exception as exc:
+            logger.warning(
+                "[Agent] business_overview fetch 실패 ticker=%s: %s", ticker, exc
+            )
+            return None, None
+        if profile is None or overview is None:
+            return (profile, overview), None
+        dto = AgentBusinessOverview.from_overview(profile.corp_name, overview)
+        return (profile, overview), dto
 
     @staticmethod
     def _coerce(result: object, agent_name: str) -> SubAgentResponse:
@@ -161,7 +211,11 @@ class ProcessAgentQueryUseCase:
         return signal, round(avg_confidence, 4)
 
     @staticmethod
-    def _from_cached(cached: IntegratedAnalysisResponse, session_id: str) -> AgentQueryResponse:
+    def _from_cached(
+        cached: IntegratedAnalysisResponse,
+        session_id: str,
+        overview_dto: Optional[AgentBusinessOverview] = None,
+    ) -> AgentQueryResponse:
         agent_results = []
         for item in cached.sub_results:
             try:
@@ -174,4 +228,5 @@ class ProcessAgentQueryUseCase:
             answer=cached.summary,
             agent_results=agent_results,
             total_execution_time_ms=cached.execution_time_ms,
+            business_overview=overview_dto,
         )

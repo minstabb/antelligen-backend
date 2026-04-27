@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Optional
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -8,6 +9,9 @@ from langchain_openai import ChatOpenAI
 from app.domains.agent.application.port.llm_synthesis_port import LlmSynthesisPort
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
 from app.domains.agent.application.service.synthesis_prompt_builder import build_synthesis_prompt
+from app.domains.company_profile.domain.value_object.business_overview import (
+    BusinessOverview,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +29,25 @@ _SYSTEM_PROMPT = """당신은 주식 종합 분석 전문가입니다.
 4. 핵심 포인트는 "구체적 수치 또는 사실 근거 + 투자 판단 의미" 형태로 작성하세요.
 5. 데이터가 없는 에이전트는 제외하고 가용 정보만으로 판단하세요.
 6. summary는 300자 이내로 작성하되, 종합 시그널과 핵심 근거를 반드시 포함하세요.
+7. 회사 사업 개요(제공되면) 를 활용해 산업 맥락·매출원·비즈니스 모델을 종합 의견에 반영하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요:
 {{"summary": "300자 이내 종합 투자 의견 (종합 시그널 + 핵심 근거 포함)", "key_points": ["수치/근거 기반 포인트 1", "수치/근거 기반 포인트 2", "수치/근거 기반 포인트 3", "상충 신호 또는 리스크 포인트 4"]}}"""
+
+
+def _format_overview_block(
+    corp_name: Optional[str], overview: BusinessOverview
+) -> str:
+    lines: list[str] = ["", "=== 회사 사업 개요 ==="]
+    if corp_name:
+        lines.append(f"회사명: {corp_name}")
+    if overview.summary:
+        lines.append(f"사업 요약: {overview.summary}")
+    if overview.revenue_sources:
+        lines.append("주요 매출원: " + ", ".join(overview.revenue_sources))
+    if overview.business_model:
+        lines.append(f"비즈니스 모델: {overview.business_model}")
+    return "\n".join(lines)
 
 
 class OpenAISynthesisClient(LlmSynthesisPort):
@@ -44,8 +64,12 @@ class OpenAISynthesisClient(LlmSynthesisPort):
         ticker: str,
         query: str,
         sub_results: list[SubAgentResponse],
+        business_overview: Optional[BusinessOverview] = None,
+        corp_name: Optional[str] = None,
     ) -> tuple[str, list[str]]:
         context = build_synthesis_prompt(ticker, query, sub_results)
+        if business_overview is not None:
+            context = context + _format_overview_block(corp_name, business_overview)
         try:
             raw = await self._chain.ainvoke({"context": context})
             parsed = json.loads(raw)

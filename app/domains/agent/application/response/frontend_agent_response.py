@@ -2,6 +2,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
+from app.domains.agent.application.response.agent_business_overview import (
+    AgentBusinessOverview,
+)
 from app.domains.agent.application.response.agent_query_response import (
     AgentQueryResponse,
     QueryResultStatus,
@@ -26,6 +29,7 @@ class FrontendAgentResponse(BaseModel):
     answer: str
     agent_results: list[FrontendAgentResultItem]
     total_execution_time_ms: int
+    business_overview: Optional[AgentBusinessOverview] = None
 
     @classmethod
     def from_internal(cls, response: AgentQueryResponse) -> "FrontendAgentResponse":
@@ -50,4 +54,5 @@ class FrontendAgentResponse(BaseModel):
             answer=response.answer,
             agent_results=agent_results,
             total_execution_time_ms=response.total_execution_time_ms,
+            business_overview=response.business_overview,
         )

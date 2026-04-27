@@ -1,7 +1,11 @@
 from enum import Enum
+from typing import Optional
 
 from pydantic import BaseModel
 
+from app.domains.agent.application.response.agent_business_overview import (
+    AgentBusinessOverview,
+)
 from app.domains.agent.application.response.sub_agent_response import SubAgentResponse
 
 
@@ -17,6 +21,7 @@ class AgentQueryResponse(BaseModel):
     answer: str
     agent_results: list[SubAgentResponse]
     total_execution_time_ms: int
+    business_overview: Optional[AgentBusinessOverview] = None
 
     def has_failures(self) -> bool:
         return any(r.is_error() for r in self.agent_results)

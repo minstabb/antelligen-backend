@@ -42,6 +42,39 @@ from app.domains.agent.application.usecase.analyze_finance_agent_usecase import 
 from app.domains.agent.application.usecase.process_agent_query_usecase import (
     ProcessAgentQueryUseCase,
 )
+from app.domains.company_profile.adapter.outbound.cache.business_overview_cache import (
+    RedisBusinessOverviewCache,
+)
+from app.domains.company_profile.adapter.outbound.cache.company_profile_cache import (
+    RedisCompanyProfileCache,
+)
+from app.domains.company_profile.adapter.outbound.external.dart_company_info_client import (
+    DartCompanyInfoClient,
+)
+from app.domains.company_profile.adapter.outbound.external.openai_business_overview_client import (
+    OpenAIBusinessOverviewClient,
+)
+from app.domains.company_profile.adapter.outbound.external.sec_company_name_adapter import (
+    SecCompanyNameAdapter,
+)
+from app.domains.company_profile.application.usecase.get_company_profile_usecase import (
+    GetCompanyProfileUseCase,
+)
+from app.domains.dashboard.adapter.outbound.external.cached_asset_type_adapter import (
+    CachedAssetTypeAdapter,
+)
+from app.domains.dashboard.adapter.outbound.external.yahoo_finance_asset_type_client import (
+    YahooFinanceAssetTypeClient,
+)
+from app.domains.disclosure.adapter.outbound.external.sec_edgar_api_client import (
+    SecEdgarApiClient,
+)
+from app.domains.disclosure.adapter.outbound.persistence.company_repository_impl import (
+    CompanyRepositoryImpl,
+)
+from app.domains.disclosure.adapter.outbound.persistence.rag_chunk_repository_impl import (
+    RagChunkRepositoryImpl,
+)
 from app.domains.stock.adapter.outbound.persistence.stock_repository_impl import (
     StockRepositoryImpl,
 )
@@ -125,12 +158,25 @@ async def query_agent(
     repository = IntegratedAnalysisRepositoryImpl(db)
     llm_synthesis = OpenAISynthesisClient(api_key=settings.openai_api_key)
 
+    sec_client = SecEdgarApiClient(user_agent=settings.sec_edgar_user_agent)
+    company_profile_usecase = GetCompanyProfileUseCase(
+        company_repository=CompanyRepositoryImpl(db),
+        dart_company_info=DartCompanyInfoClient(),
+        cache=RedisCompanyProfileCache(redis),
+        rag_chunk_repository=RagChunkRepositoryImpl(db),
+        business_overview=OpenAIBusinessOverviewClient(),
+        overview_cache=RedisBusinessOverviewCache(redis),
+        us_company_name=SecCompanyNameAdapter(sec_client),
+        asset_type_port=CachedAssetTypeAdapter(YahooFinanceAssetTypeClient(), redis),
+    )
+
     usecase = ProcessAgentQueryUseCase(
         news_agent=NewsSubAgentAdapter(db=db, api_key=settings.openai_api_key),
         disclosure_agent=DisclosureSubAgentAdapter(),
         finance_agent=FinanceSubAgentAdapter(),
         llm_synthesis=llm_synthesis,
         repository=repository,
+        company_profile_usecase=company_profile_usecase,
     )
     internal_result = await usecase.execute(body)
     frontend_result = FrontendAgentResponse.from_internal(internal_result)
