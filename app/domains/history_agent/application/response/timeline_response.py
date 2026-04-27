@@ -51,6 +51,15 @@ class TimelineEvent(BaseModel):
     abnormal_return_20d: Optional[float] = None
     ar_status: Optional[str] = None
     benchmark_ticker: Optional[str] = None
+    # KR1 — MACRO 이벤트의 인과 분류. "TYPE_A"(원인 — FOMC/CPI 등 발표) /
+    # "TYPE_B"(결과 — VIX/금리/환율 등 시장 반응). 비-MACRO 이벤트와 미정의 type 은 None.
+    macro_type: Optional[str] = None
+    # KR2 — Type B 이벤트의 추정 사유. cross-ref 매칭 또는 LLM 추정 결과. 미해결 시 None.
+    reason: Optional[str] = None
+    # KR2-(3)/KR3 — 사유 신뢰도. "HIGH"(같은 날 Type A cross-ref) / "LOW"(LLM 추정).
+    reason_confidence: Optional[str] = None
+    # KR2-(3)/KR3 — 사유 근거(특정 사건명/발표명). LLM 추정 시 출처 강제 제출 + 미제시 시 reason None.
+    reason_evidence: Optional[str] = None
 
 
 class TimelineResponse(BaseModel):

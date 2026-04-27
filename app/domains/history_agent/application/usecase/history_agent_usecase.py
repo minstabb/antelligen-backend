@@ -52,6 +52,9 @@ from app.domains.history_agent.application.service.event_classifier_service impo
 from app.domains.history_agent.application.service.event_importance_service import (
     EventImportanceService,
 )
+from app.domains.history_agent.application.service.macro_reason_service import (
+    enrich_type_b_reasons,
+)
 from app.domains.history_agent.application.service.text_utils import (
     needs_korean_summary,
 )
@@ -78,9 +81,9 @@ from app.infrastructure.langgraph.llm_factory import get_workflow_llm
 logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 3600
-# v7: PR3 — TimelineEvent에 abnormal_return_5d/20d/ar_status/benchmark_ticker 추가.
-# v6 캐시 무효화 (옵셔널 필드라 역직렬화 호환은 되지만 stale cache 가 AR 미반영이라 의미 없음).
-_CACHE_VERSION = "v7"
+# v8: KR1/KR2/KR3 — TimelineEvent 에 macro_type/reason/reason_confidence/reason_evidence 추가.
+# 옵셔널 필드라 v7 직렬화 역호환은 되지만, stale cache 는 신규 필드 미반영이라 의미 없음.
+_CACHE_VERSION = "v8"
 
 _SUPPORTED_ASSET_TYPES = {"EQUITY", "INDEX", "ETF"}
 
@@ -842,7 +845,12 @@ class HistoryAgentUseCase:
 
         await _notify("title_gen", "AI 타이틀 생성 중...", 70)
         if enrich_titles:
+            # 타이틀 먼저 채우고 사유 추정 — Type A cross-ref evidence 가 자연어 타이틀을 참조하기 위함.
             await enrich_macro_titles(timeline, redis=self._redis)
+            await enrich_type_b_reasons(timeline, redis=self._redis)
+        else:
+            # 타이틀 미보강이어도 분류 + cross-ref 만이라도 적용. cutoff 이후 LLM 호출은 자동 skip.
+            await enrich_type_b_reasons(timeline, redis=self._redis)
 
         await self._save_enrichments(ticker, new_events)
 
@@ -948,6 +956,9 @@ class HistoryAgentUseCase:
                 self._event_importance_service.score(ticker, timeline),
                 _etf_classify_then_score_v2(),
             )
+
+        # MACRO 사유 추정은 타이틀 생성 이후 단독 호출 — cross-ref evidence 가 자연어 타이틀 참조.
+        await enrich_type_b_reasons(timeline, redis=self._redis)
 
         await self._save_enrichments(ticker, new_events)
 

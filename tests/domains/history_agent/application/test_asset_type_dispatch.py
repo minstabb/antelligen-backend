@@ -35,10 +35,10 @@ def _make_usecase_with_quote_type(quote_type: str, redis_get_return=None):
 
 def test_build_cache_key_includes_asset_type_and_version():
     assert HistoryAgentUseCase._build_cache_key("EQUITY", "AAPL", "1Y", True) == (
-        "history_agent:v7:EQUITY:AAPL:1Y"
+        "history_agent:v8:EQUITY:AAPL:1Y"
     )
     assert HistoryAgentUseCase._build_cache_key("INDEX", "^IXIC", "1M", False) == (
-        "history_agent:v7:INDEX:^IXIC:1M:no-titles"
+        "history_agent:v8:INDEX:^IXIC:1M:no-titles"
     )
 
 
@@ -83,4 +83,4 @@ async def test_asset_type_cache_key_present_in_redis():
     # redis.get 호출 키가 asset_type을 포함
     get_key = redis_mock.get.call_args.args[0]
     assert "MUTUALFUND" in get_key
-    assert "history_agent:v7" in get_key
+    assert "history_agent:v8" in get_key

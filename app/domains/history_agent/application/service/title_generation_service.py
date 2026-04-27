@@ -117,6 +117,45 @@ _NON_MACRO_FALLBACK: Dict[str, str] = {
 FALLBACK_TITLE: Dict[str, str] = {**_NON_MACRO_FALLBACK, **macro_fallback_titles()}
 
 
+# KR1 — MACRO 이벤트의 인과 분류.
+# TYPE_A: 원인 이벤트(FOMC/CPI/PMI/정책 발표 등) — type/detail 자체가 명확한 사유.
+# TYPE_B: 결과 이벤트(VIX/유가/금/환율/지수 변동) — 별도 사유 추정 필요(KR2 fallback 대상).
+#
+# 정의되지 않은 type 은 None 으로 두고 reason 추정 대상에서 제외(보수적 기본).
+# Type A 명단은 macro_fallback_titles 의 FRED 발표 시리즈와 정합. Type B 명단은
+# _NON_MACRO_FALLBACK 매크로 결과 이벤트와 정합.
+MACRO_EVENT_TYPE: Dict[str, str] = {
+    # ── Type A: 원인 (발표·정책 이벤트) ───────────────
+    "FOMC_RATE_DECISION": "TYPE_A",
+    "CPI_RELEASE": "TYPE_A",
+    "PPI_RELEASE": "TYPE_A",
+    "UNEMPLOYMENT_RELEASE": "TYPE_A",
+    "PAYROLLS_RELEASE": "TYPE_A",
+    "GDP_RELEASE": "TYPE_A",
+    "PMI_RELEASE": "TYPE_A",
+    "RETAIL_SALES_RELEASE": "TYPE_A",
+    "POLICY_ANNOUNCEMENT": "TYPE_A",
+    "TARIFF": "TYPE_A",
+    # ── Type B: 결과 (시장·자산 가격 변동) ─────────────
+    "VIX_SPIKE": "TYPE_B",
+    "OIL_SPIKE": "TYPE_B",
+    "GOLD_SPIKE": "TYPE_B",
+    "US10Y_SPIKE": "TYPE_B",
+    "FX_MOVE": "TYPE_B",
+    "GEOPOLITICAL_RISK": "TYPE_B",
+}
+
+
+def classify_macro_type(event: TimelineEvent) -> Optional[str]:
+    """MACRO 이벤트의 KR1 인과 분류를 반환한다.
+
+    매핑 미정의 type 은 None — reason 추정 대상에서 제외(보수적 기본).
+    """
+    if event.category != "MACRO":
+        return None
+    return MACRO_EVENT_TYPE.get(event.type)
+
+
 def default_fallback(item: Any) -> str:
     t = getattr(item, "type", "") or ""
     if t in FALLBACK_TITLE:
