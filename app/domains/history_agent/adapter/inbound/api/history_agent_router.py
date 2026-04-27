@@ -68,13 +68,26 @@ _SSE_KEEPALIVE_SECONDS = 15
 
 
 async def _resolve_corp_code(ticker: str, db: AsyncSession) -> Optional[str]:
-    if not (ticker.isdigit() and len(ticker) == 6):
+    """yfinance ticker → DART corp_code(8자리). DB 우선, miss 시 DART corpCode.xml fallback.
+
+    호출 시점: router 가 `normalize_yfinance_ticker` 후 호출 → "005930" → "005930.KS".
+    suffix(`.KS`/`.KQ`) 떼고 6자리 stock_code 만 추출해 매핑 시도.
+    """
+    stock_code = ticker.split(".")[0]
+    if not (stock_code.isdigit() and len(stock_code) == 6):
         return None
+
     from app.domains.disclosure.adapter.outbound.persistence.company_repository_impl import (
         CompanyRepositoryImpl,
     )
-    company = await CompanyRepositoryImpl(db).find_by_stock_code(ticker)
-    return company.corp_code if company else None
+    company = await CompanyRepositoryImpl(db).find_by_stock_code(stock_code)
+    if company:
+        return company.corp_code
+
+    # DB miss → DART corpCode.xml fallback (Redis cache 30일)
+    from app.infrastructure.cache.redis_client import redis_client
+    from app.infrastructure.external.corp_code_mapper import ticker_to_corp_code
+    return await ticker_to_corp_code(stock_code, redis_client=redis_client)
 
 
 @router.get("/timeline", response_model=BaseResponse[TimelineResponse])
