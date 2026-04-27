@@ -15,7 +15,7 @@ from app.domains.history_agent.application.service.title_generation_service impo
 )
 
 
-def _make_macro(type_: str, day: int, detail: str = "", title: str = "") -> TimelineEvent:
+def _make_macro(type_: str, day: int, detail: str = "", title: str = "", url: str = "") -> TimelineEvent:
     return TimelineEvent(
         title=title or type_,
         date=date(2024, 6, day),
@@ -23,6 +23,7 @@ def _make_macro(type_: str, day: int, detail: str = "", title: str = "") -> Time
         type=type_,
         detail=detail,
         source="FRED",
+        url=url or None,
     )
 
 
@@ -72,7 +73,26 @@ async def test_same_day_cross_ref_fills_high_confidence_reason():
     assert type_b.macro_type == "TYPE_B"
     assert type_b.reason == "연준 0.25%p 인상 영향"
     assert type_b.reason_confidence == "HIGH"
+    # url 없는 Type A → title fallback
     assert type_b.reason_evidence == "연준 0.25%p 인상"
+
+
+@pytest.mark.asyncio
+async def test_same_day_cross_ref_uses_url_when_available():
+    """curated Type A 가 source_url 을 가지면 evidence 에 URL 흘림 → frontend 핑크 링크 활성화."""
+    type_a = _make_macro(
+        "FOMC_RATE_DECISION", 12,
+        title="연준 0.25%p 인상",
+        url="https://federalreserve.gov/newsevents/pressreleases/monetary20240612a.htm",
+    )
+    type_b = _make_macro("VIX_SPIKE", 12)
+
+    await enrich_type_b_reasons([type_a, type_b], redis=None)
+
+    assert type_b.reason_confidence == "HIGH"
+    assert type_b.reason_evidence == (
+        "https://federalreserve.gov/newsevents/pressreleases/monetary20240612a.htm"
+    )
 
 
 @pytest.mark.asyncio
@@ -238,7 +258,24 @@ async def test_window_cross_ref_picks_closest_type_a_within_seven_days():
 
     assert type_b.reason == "연준 금리 인상 2일 후 영향"
     assert type_b.reason_confidence == "MEDIUM"
+    # url 없는 Type A → title fallback
     assert type_b.reason_evidence == "연준 금리 인상"
+
+
+@pytest.mark.asyncio
+async def test_window_cross_ref_uses_url_when_available():
+    """±7일 cross-ref 에서도 url 우선, fallback title."""
+    near_a = _make_macro(
+        "FOMC_RATE_DECISION", 10,
+        title="연준 금리 인상",
+        url="https://federalreserve.gov/example",
+    )
+    type_b = _make_macro("VIX_SPIKE", 12)
+
+    await enrich_type_b_reasons([near_a, type_b], redis=None)
+
+    assert type_b.reason_confidence == "MEDIUM"
+    assert type_b.reason_evidence == "https://federalreserve.gov/example"
 
 
 @pytest.mark.asyncio

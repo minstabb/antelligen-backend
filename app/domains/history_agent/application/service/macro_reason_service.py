@@ -128,7 +128,8 @@ def _resolve_same_day_cross_ref(
                 ev,
                 reason=f"{primary.title} 영향",
                 confidence="HIGH",
-                evidence=primary.title,
+                # url 이 있으면 frontend 가 "사유 출처 보기" 핑크 링크로 노출. 없으면 title fallback.
+                evidence=primary.url or primary.title,
             )
             hits += 1
             continue
@@ -176,7 +177,8 @@ def _resolve_window_cross_ref(
                 ev,
                 reason=f"{closest.title} {window_label} 영향",
                 confidence="MEDIUM",
-                evidence=closest.title,
+                # url 이 있으면 frontend 핑크 링크 노출. 없으면 title fallback.
+                evidence=closest.url or closest.title,
             )
             hits += 1
             continue
