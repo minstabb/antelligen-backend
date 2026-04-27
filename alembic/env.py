@@ -9,7 +9,9 @@ from alembic import context
 
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.database import Base
+from app.infrastructure.database.vector_database import VectorBase
 import app.domains.history_agent.infrastructure.orm.event_enrichment_orm  # noqa: F401
+import app.domains.sentiment.infrastructure.orm.sns_post_orm  # noqa: F401
 
 # Alembic Config 객체
 config = context.config
@@ -18,8 +20,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# autogenerate를 위해 Base.metadata 연결
-target_metadata = Base.metadata
+# autogenerate를 위해 Base.metadata + VectorBase.metadata 연결
+target_metadata = [Base.metadata, VectorBase.metadata]
 
 # 환경 변수에서 DB URL 구성
 settings = get_settings()
