@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     # 기본은 Phase A(규칙 기반)만 동작. True로 켜면 규칙 미매핑 케이스에 LLM 워크플로우 호출.
     index_causality_llm_enabled: bool = False
 
+    # MACRO Type B 사유 추정 LLM 호출 cutoff (ISO date).
+    # 이벤트 날짜 > cutoff 이면 LLM 호출 자체를 skip → "원인 미확인" fallback.
+    # 모델 knowledge cutoff 이후의 사건에 대한 hallucination 방지(KR3 안전장치 ①).
+    # 기본값은 gpt-5-mini 기준 보수적으로 설정. 모델 변경 시 env 로 override.
+    history_macro_reason_cutoff: str = "2024-08-01"
+
     # Data-source expansion (Tier A/B/C)
     history_holdings_concurrency: int = 3
     history_news_top_n: int = 10
