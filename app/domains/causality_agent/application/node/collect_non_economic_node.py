@@ -252,7 +252,11 @@ async def _collect_analyst_recommendations(ticker: str) -> List[Dict[str, Any]]:
 
 
 async def collect_non_economic(state: CausalityAgentState) -> Dict[str, Any]:
-    """VIX·원유·금·미국채·엔화 + 뉴스 + GPR + SEC 공시 + 분석가 추천을 병렬 수집한다."""
+    """VIX·원유·금·미국채·엔화 + 뉴스 + GPR + 공시(SEC/DART) + 분석가 추천을 병렬 수집한다.
+
+    공시는 ticker region 따라 분기 — 미국 종목은 SEC EDGAR 8-K, 한국 종목은
+    DART list.json. 한국 종목 corp_code 매핑 실패 시 빈 배열 graceful (OKR 1 P1.5).
+    """
     ticker = state["ticker"]
     start_date = state["start_date"]
     end_date = state["end_date"]

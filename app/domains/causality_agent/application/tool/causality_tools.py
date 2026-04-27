@@ -102,8 +102,12 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "name": "get_announcements",
         "description": (
-            "수집된 공시(SEC 8-K) 리스트를 키워드로 필터링해 반환한다. "
-            "DART 한국 공시는 후속 PR에서 추가될 예정. keyword 빈 문자열이면 전체 반환."
+            "수집된 공시(미국 SEC 8-K + 한국 DART) 리스트를 키워드로 필터링해 반환한다. "
+            "ticker 가 한국 종목이면 DART list.json, 미국 종목이면 SEC EDGAR 가 사전에 수집됨. "
+            "type 필드: EARNINGS_RELEASE / EARNINGS_GUIDANCE(잠정실적) / TREASURY_STOCK / "
+            "STOCK_SPLIT / RIGHTS_OFFERING / BONUS_ISSUE / MERGER_ACQUISITION / "
+            "DEBT_ISSUANCE / CRISIS / MAJOR_EVENT 등. "
+            "source 필드: 'sec_edgar' | 'dart'. keyword 빈 문자열이면 전체 반환."
         ),
         "input_schema": {
             "type": "object",
