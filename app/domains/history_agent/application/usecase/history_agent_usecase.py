@@ -407,6 +407,9 @@ def _from_announcements(
 
 
 def _from_macro_context(events: List[MacroContextEvent]) -> List[TimelineEvent]:
+    # 정책 의미: category="MACRO" 는 "정책/발표(TYPE_A) + 시장 반응(TYPE_B)" 를 모두 포함.
+    # related_assets(VIX/Oil/Gold/US10Y/FX) 와 GPR 스파이크는 시장 반응(TYPE_B) 으로
+    # 분류기(KR1)가 이후 macro_type 을 채워 구분한다.
     return [
         TimelineEvent(
             title=e.label,
@@ -1034,7 +1037,12 @@ class HistoryAgentUseCase:
     async def _collect_macro_context(
         self, *, start_date, end_date
     ) -> List[TimelineEvent]:
-        """INDEX/ETF용 매크로 컨텍스트 이벤트 수집 (VIX/Oil/Gold/US10Y/FX + GPR)."""
+        """INDEX/ETF용 매크로 컨텍스트 이벤트 수집 (VIX/Oil/Gold/US10Y/FX + GPR).
+
+        수집 결과는 모두 category="MACRO" 로 emit 되지만, 시장 반응(TYPE_B) 성격이라
+        이후 macro_classifier 가 macro_type="TYPE_B" 로 분류한다 (정책/발표는 TYPE_A).
+        프런트는 이 type 분류로 색상/표시를 분기 (Type A=인디고 / Type B=핑크).
+        """
         tasks = []
         if self._related_assets_port is not None:
             tasks.append(
