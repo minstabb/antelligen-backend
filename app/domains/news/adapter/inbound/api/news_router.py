@@ -16,6 +16,8 @@ from app.domains.news.adapter.outbound.external.openai_article_analysis_provider
 from app.domains.news.adapter.outbound.external.openai_news_signal_adapter import (
     OpenAINewsSignalAdapter,
 )
+from app.domains.news.adapter.outbound.ticker_keyword_resolver import TickerKeywordResolver
+from app.domains.stock.adapter.outbound.persistence.stock_repository_impl import StockRepositoryImpl
 from app.domains.news.adapter.outbound.external.serp_news_search_provider import (
     SerpNewsSearchProvider,
 )
@@ -288,7 +290,12 @@ async def get_news_agent_result(
     settings = get_settings()
     repository = CollectedNewsRepositoryImpl(db)
     analysis_adapter = OpenAINewsSignalAdapter(api_key=settings.openai_api_key)
-    usecase = AnalyzeNewsSignalUseCase(repository=repository, analysis_port=analysis_adapter)
+    keyword_resolver = TickerKeywordResolver(StockRepositoryImpl())
+    usecase = AnalyzeNewsSignalUseCase(
+        repository=repository,
+        analysis_port=analysis_adapter,
+        keyword_resolver=keyword_resolver,
+    )
     result = await usecase.execute(ticker)
     return BaseResponse.ok(data=result)
 

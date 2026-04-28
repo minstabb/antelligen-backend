@@ -29,3 +29,19 @@ ticker,stock_name,market
 035720,카카오,KOSPI
 000100,SK,KOSPI
 066570,LG전자,KOSPI
+AAPL,Apple,NASDAQ
+MSFT,Microsoft,NASDAQ
+GOOGL,Alphabet,NASDAQ
+AMZN,Amazon,NASDAQ
+META,Meta Platforms,NASDAQ
+TSLA,Tesla,NASDAQ
+NVDA,NVIDIA,NASDAQ
+AMD,Advanced Micro Devices,NASDAQ
+PLTR,Palantir,NASDAQ
+NFLX,Netflix,NASDAQ
+AVGO,Broadcom,NASDAQ
+TSM,Taiwan Semiconductor,NYSE
+COIN,Coinbase,NASDAQ
+MSTR,MicroStrategy,NASDAQ
+GME,GameStop,NYSE
+SMCI,Super Micro Computer,NASDAQ

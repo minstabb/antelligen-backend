@@ -147,3 +147,7 @@ logs/
 * [0-9].yaml
 * [0-9].toml
 * [0-9].txt
+alembic.ini.bak
+sentiment_template/
+sentiment_template.tar.gz
+test_sentiment_*.py
