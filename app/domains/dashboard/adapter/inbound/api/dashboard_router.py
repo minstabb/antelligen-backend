@@ -30,24 +30,6 @@ from app.domains.dashboard.application.usecase.get_macro_data_usecase import Get
 from app.domains.dashboard.application.usecase.get_nasdaq_bars_usecase import (
     GetNasdaqBarsUseCase,
 )
-from app.domains.dashboard.adapter.outbound.external.dart_announcement_client import (
-    DartAnnouncementClient,
-)
-from app.domains.dashboard.adapter.outbound.external.dart_corporate_event_client import (
-    DartCorporateEventClient,
-)
-from app.domains.dashboard.adapter.outbound.external.sec_edgar_announcement_client import (
-    SecEdgarAnnouncementClient,
-)
-from app.domains.dashboard.adapter.outbound.external.yahoo_finance_corporate_event_client import (
-    YahooFinanceCorporateEventClient,
-)
-from app.domains.dashboard.application.response.announcement_response import AnnouncementsResponse
-from app.domains.dashboard.application.response.corporate_event_response import CorporateEventsResponse
-from app.domains.dashboard.application.usecase.get_announcements_usecase import GetAnnouncementsUseCase
-from app.domains.dashboard.application.usecase.get_corporate_events_usecase import (
-    GetCorporateEventsUseCase,
-)
 from app.domains.dashboard.application.usecase.get_stock_bars_usecase import GetStockBarsUseCase
 from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.database.database import get_db
@@ -135,66 +117,6 @@ async def get_stock_bars(
 # §13.4 C: /price-events 엔드포인트 철거.
 # PRICE 카테고리(LOW_52W/HIGH_52W/SURGE/PLUNGE/GAP)는 `/history-agent/anomaly-bars`
 # 엔드포인트가 차트 이상치 봉 마커로 대체.
-
-
-@router.get("/stocks/{ticker}/corporate-events", response_model=BaseResponse[CorporateEventsResponse])
-async def get_corporate_events(
-    ticker: str,
-    chart_interval: str = Query("1Y", alias="chartInterval", description="봉 단위: 1D | 1W | 1M | 1Y"),
-    db: AsyncSession = Depends(get_db),
-):
-    """개별 종목의 기업 이벤트(실적·배당·유상증자·자사주·임원변동 등)를 반환합니다.
-
-    한국 종목(6자리 숫자)은 yfinance + DART 두 소스를 병합해 반환합니다.
-    미국 종목은 yfinance(배당·주식분할)만 반환합니다.
-    """
-    effective = _validate_chart_interval(chart_interval)
-
-    ticker = ticker.upper()
-    corp_code = None
-    if ticker.isdigit() and len(ticker) == 6:
-        from app.domains.disclosure.adapter.outbound.persistence.company_repository_impl import (
-            CompanyRepositoryImpl,
-        )
-        company = await CompanyRepositoryImpl(db).find_by_stock_code(ticker)
-        corp_code = company.corp_code if company else None
-
-    result = await GetCorporateEventsUseCase(
-        yfinance_port=YahooFinanceCorporateEventClient(),
-        dart_client=DartCorporateEventClient(),
-    ).execute(ticker=ticker, period=effective, corp_code=corp_code)
-
-    return BaseResponse.ok(data=result)
-
-
-@router.get("/stocks/{ticker}/announcements", response_model=BaseResponse[AnnouncementsResponse])
-async def get_announcements(
-    ticker: str,
-    chart_interval: str = Query("1Y", alias="chartInterval", description="봉 단위: 1D | 1W | 1M | 1Y"),
-    db: AsyncSession = Depends(get_db),
-):
-    """합병/인수/계약 공시를 반환합니다.
-
-    한국 종목(6자리 숫자): DART 주요사항보고서
-    미국 종목: SEC EDGAR 8-K 공시
-    """
-    effective = _validate_chart_interval(chart_interval)
-
-    ticker = ticker.upper()
-    corp_code = None
-    if ticker.isdigit() and len(ticker) == 6:
-        from app.domains.disclosure.adapter.outbound.persistence.company_repository_impl import (
-            CompanyRepositoryImpl,
-        )
-        company = await CompanyRepositoryImpl(db).find_by_stock_code(ticker)
-        corp_code = company.corp_code if company else None
-
-    result = await GetAnnouncementsUseCase(
-        sec_edgar_port=SecEdgarAnnouncementClient(),
-        dart_client=DartAnnouncementClient(),
-    ).execute(ticker=ticker, period=effective, corp_code=corp_code)
-
-    return BaseResponse.ok(data=result)
 
 
 @router.post("/nasdaq/collect", response_model=BaseResponse[dict])
