@@ -30,6 +30,9 @@ from app.domains.schedule.application.response.event_impact_analysis_response im
 )
 from app.domains.schedule.domain.entity.economic_event import EconomicEvent
 from app.domains.schedule.domain.entity.event_impact_analysis import EventImpactAnalysis
+from app.domains.schedule.domain.service.us_event_title_translator import (
+    translate_us_event_title,
+)
 from app.domains.schedule.domain.value_object.event_importance import EventImportance
 from app.domains.schedule.domain.value_object.investment_info_type import InvestmentInfoType
 
@@ -40,6 +43,81 @@ _ANALYSIS_EXCLUDED_SOURCES = {"corp_earnings"}
 
 # 다가오는 일정 조회 범위 (기준일 +1 ~ +N 일)
 _UPCOMING_WINDOW_DAYS = 7
+
+# FOMC 회의 1건을 가리키는 동의어 패턴 (대소문자 무시).
+# (source, source_event_id) 가 다르더라도 같은 (country, date) 에서 이 패턴 중
+# 하나가 매칭되면 동일 사건으로 간주해 1건만 노출한다.
+# 과거 잘못된 sync 로 DB 에 남아 있는 중복 row 와 향후 새 source 가 추가될 때를
+# 대비한 런타임 safety-net.
+_FOMC_TOPIC_PATTERNS = (
+    "fomc",
+    "federal open market committee",
+    "기준금리",  # central_bank source 의 한글 타이틀
+    "summary of economic projections",
+    "projections materials",
+)
+
+# topic dedup 시 우선 보존할 source 우선순위 (앞쪽이 캐노니컬)
+_DEDUP_SOURCE_PRIORITY = ("central_bank", "snapshot", "fred", "corp_earnings")
+
+
+def _is_fomc_topic(title: str) -> bool:
+    if not title:
+        return False
+    lowered = title.lower()
+    return any(p in lowered for p in _FOMC_TOPIC_PATTERNS)
+
+
+def _source_rank(source: str) -> int:
+    try:
+        return _DEDUP_SOURCE_PRIORITY.index(source)
+    except ValueError:
+        return len(_DEDUP_SOURCE_PRIORITY)
+
+
+def _dedupe_overlapping_events(events: List[EconomicEvent]) -> List[EconomicEvent]:
+    """같은 (country, date) 에 동일 토픽(현재는 FOMC) 이벤트가 다수 있으면 1건으로 collapse.
+
+    선택 규칙:
+      1) `_DEDUP_SOURCE_PRIORITY` 가 앞쪽인 source 가 우선 (central_bank > fred 등)
+      2) source 가 같으면 importance HIGH 우선
+      3) 그래도 같으면 source_event_id 기준 사전순으로 결정 (deterministic)
+    """
+    if not events:
+        return events
+
+    grouped: Dict[tuple, List[EconomicEvent]] = {}
+    leftovers: List[EconomicEvent] = []
+
+    for e in events:
+        if _is_fomc_topic(e.title):
+            key = ("FOMC", e.country, e.event_at.date())
+            grouped.setdefault(key, []).append(e)
+        else:
+            leftovers.append(e)
+
+    deduped: List[EconomicEvent] = list(leftovers)
+    for key, group in grouped.items():
+        if len(group) == 1:
+            deduped.append(group[0])
+            continue
+        group.sort(
+            key=lambda e: (
+                _source_rank(e.source),
+                0 if e.importance == EventImportance.HIGH else 1,
+                e.source_event_id or "",
+            )
+        )
+        chosen = group[0]
+        dropped_titles = [f"{e.source}:{e.title}" for e in group[1:]]
+        print(
+            f"[schedule.analyze] FOMC 중복 collapse country={key[1]} date={key[2]} "
+            f"chosen={chosen.source}:{chosen.title!r} dropped={dropped_titles}"
+        )
+        deduped.append(chosen)
+
+    deduped.sort(key=lambda e: e.event_at)
+    return deduped
 
 # 프론트 '다가오는 경제 일정' 섹션 하단 안내 문구
 UPCOMING_EVENTS_NOTICE = (
@@ -118,6 +196,9 @@ class RunEventImpactAnalysisUseCase:
             if e.importance.value in importance_set
             and e.source not in _ANALYSIS_EXCLUDED_SOURCES
         ]
+        # 같은 (country, date) FOMC 동의 이벤트는 1건으로 collapse — DB 에 잔존하는
+        # 과거 중복 row 가 화면을 어지럽히지 않도록 런타임 safety-net
+        events = _dedupe_overlapping_events(events)
         # 기준일(reference_date) 기준 가까운 날짜부터 처리
         events.sort(key=lambda e: abs((e.event_at.date() - reference_date).days))
         events = events[: request.limit]
@@ -245,6 +326,8 @@ class RunEventImpactAnalysisUseCase:
             logger.warning("[schedule.analyze] 다가오는 일정 조회 실패: %s", exc)
             return []
 
+        # 같은 (country, date) FOMC 동의 이벤트 collapse
+        events = _dedupe_overlapping_events(events)
         print(
             f"[schedule.analyze] 다가오는 1주일 일정 {len(events)}건 "
             f"({start.isoformat()}~{end.isoformat()})"
@@ -253,7 +336,7 @@ class RunEventImpactAnalysisUseCase:
         return [
             UpcomingEventItem(
                 event_id=e.id,
-                title=e.title,
+                title=translate_us_event_title(e.title) if e.country == "US" else e.title,
                 country=e.country,
                 event_at=e.event_at,
                 importance=e.importance.value,
@@ -360,10 +443,15 @@ class RunEventImpactAnalysisUseCase:
     def _to_item(
         event: EconomicEvent, analysis: EventImpactAnalysis
     ) -> EventImpactAnalysisItem:
+        display_title = (
+            translate_us_event_title(event.title)
+            if event.country == "US"
+            else event.title
+        )
         return EventImpactAnalysisItem(
             id=analysis.id,
             event_id=analysis.event_id,
-            event_title=event.title,
+            event_title=display_title,
             event_country=event.country,
             event_at=event.event_at,
             event_importance=event.importance.value,
