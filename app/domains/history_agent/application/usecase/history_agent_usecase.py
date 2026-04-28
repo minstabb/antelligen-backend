@@ -767,12 +767,12 @@ class HistoryAgentUseCase:
         # AR 메트릭은 importance prompt에 합류하므로 score() 전에 채운다.
         await self._apply_event_impact_metrics(ticker, timeline)
 
-        # 2) causality / 비-PRICE 타이틀 / 공시 요약을 병렬 실행.
-        #    §13.4 C에서 PRICE 카테고리가 제거되어 price_titles 체인은 불필요.
-        logger.info("[HistoryAgent] [3/4] 인과관계 + 타이틀 생성 (병렬, 신규 이벤트만)")
-        await _notify("causality", "인과관계 분석 · 타이틀 생성 중...", 55)
-
-        causality_task = _enrich_causality(ticker, timeline)
+        # 2) 비-PRICE 타이틀 / 공시 요약 / 분류 / 점수 병렬 실행.
+        #    §13.4 C 에서 PRICE 카테고리 제거 — 종목별 SURGE/PLUNGE 인과관계는
+        #    /anomaly-bars/{ticker}/{date}/causality 엔드포인트(get_anomaly_causality_usecase)
+        #    로 이관됨. _enrich_causality 함수는 격리 단위 테스트만 유지.
+        logger.info("[HistoryAgent] [3/4] 타이틀 생성 + 분류 + 점수 (병렬, 신규 이벤트만)")
+        await _notify("causality", "타이틀 생성 · 분류 · 점수 중...", 55)
 
         # v2 분류기는 score_v2 전에 실행 — 재분류된 type을 1~5 점수기 입력으로 사용.
         async def _classify_then_score_v2() -> None:
@@ -781,7 +781,6 @@ class HistoryAgentUseCase:
 
         if enrich_titles:
             await asyncio.gather(
-                causality_task,
                 enrich_other_titles(timeline),
                 _enrich_announcement_details(timeline, redis=self._redis),
                 self._event_importance_service.score(ticker, timeline),
@@ -789,7 +788,6 @@ class HistoryAgentUseCase:
             )
         else:
             await asyncio.gather(
-                causality_task,
                 _enrich_announcement_details(timeline, redis=self._redis),
                 self._event_importance_service.score(ticker, timeline),
                 _classify_then_score_v2(),
@@ -851,7 +849,9 @@ class HistoryAgentUseCase:
             len(timeline) - len(new_events), len(new_events),
         )
 
-        await _enrich_causality(ticker, timeline, is_index=True)
+        # §13.4 C — INDEX/ETF 도 PRICE 카테고리 제거. 인덱스 인과관계(T2-1 Phase A/B)는
+        # 호출되지 않는 상태(_enrich_causality 가 빈 targets 으로 즉시 return). 향후 부활 시
+        # /anomaly-bars 엔드포인트로 통일 검토.
 
         await _notify("title_gen", "AI 타이틀 생성 중...", 70)
         if enrich_titles:
