@@ -48,6 +48,15 @@ def test_cache_key_differs_for_different_detail():
     )
 
 
+def test_cache_key_format_v2_full_sha256():
+    # v2 — 전체 64-char SHA-256 사용 (collision 영향 0). 16-char 버전 v1 회귀 방어.
+    key = _announcement_summary_cache_key(_LONG_ENGLISH_DETAIL)
+    assert key.startswith("announcement_summary:v2:")
+    hash_part = key.split(":", 2)[2]
+    assert len(hash_part) == 64
+    assert all(c in "0123456789abcdef" for c in hash_part)
+
+
 @pytest.mark.asyncio
 async def test_full_cache_hit_skips_llm():
     """전체 캐시 적중 시 _summarize_to_korean (LLM) 미호출."""

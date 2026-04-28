@@ -254,12 +254,14 @@ async def _summarize_to_korean(detail: str) -> str:
         return detail
 
 
-_ANNOUNCEMENT_SUMMARY_CACHE_VERSION = "v1"
+_ANNOUNCEMENT_SUMMARY_CACHE_VERSION = "v2"
 _ANNOUNCEMENT_SUMMARY_CACHE_TTL_SEC = 90 * 24 * 60 * 60  # 90 days
 
 
 def _announcement_summary_cache_key(detail: str) -> str:
-    h = hashlib.sha256(detail.encode()).hexdigest()[:16]
+    # 16-hex(64-bit) → 전체 64-hex(256-bit). 이론적 hash collision 영향 0 으로 하한.
+    # cross-ticker 캐시 공유 의도(동일 본문 = 동일 요약)는 그대로 유지.
+    h = hashlib.sha256(detail.encode()).hexdigest()
     return f"announcement_summary:{_ANNOUNCEMENT_SUMMARY_CACHE_VERSION}:{h}"
 
 
@@ -270,7 +272,7 @@ async def _enrich_announcement_details(
     """ANNOUNCEMENT 이벤트의 영문 detail을 한국어 요약으로 교체한다.
 
     NEWS/MACRO 캐시 패턴(§13.4 B follow-up) 동일 적용:
-      announcement_summary:v1:{sha256(detail)[:16]} 키로 90일 TTL 영구 보존.
+      announcement_summary:v2:{sha256(detail)} 키로 90일 TTL 영구 보존.
       동일 공시 본문이 여러 ticker/호출에서 등장 시 LLM 호출 0회.
     """
     targets = [
