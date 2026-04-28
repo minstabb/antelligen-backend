@@ -46,6 +46,28 @@ _HIGH_IMPORTANCE_KEYWORDS = (
     "Industrial Production",
 )
 
+# FOMC 회의일에 동시 발표되는 release 들은 StaticCentralBankEventClient 의
+# 'FOMC 기준금리 결정' entry 와 같은 날짜에 중복 노출돼 UI 가 지저분해진다.
+# central_bank source 가 한글 타이틀로 회의 자체를 캐노니컬하게 다루므로
+# 아래 키워드와 매칭되는 FRED release 는 수집 단계에서 제외한다.
+#
+# 제외 (회의 당일 중복):
+#  - "FOMC Press Release"  : 회의 직후 성명서 (= central_bank entry 와 동일 날짜)
+#  - "Federal Open Market Committee" / "Press Release: FOMC" : 위와 동의어 release 명 변형
+#  - "Summary of Economic Projections" / "FOMC Projections Materials"
+#                          : 분기 FOMC 당일 동시 공개 (점도표 등)
+# 유지 (별도 날짜·정보):
+#  - "Minutes of the Federal Open Market Committee" : 회의 3주 후 공개
+#  - "Beige Book" : 회의 2주 전 공개
+_FOMC_OVERLAP_KEYWORDS = (
+    "fomc press release",
+    "press release: fomc",
+    "press release: federal open market committee",
+    "federal open market committee press release",
+    "summary of economic projections",
+    "fomc projections materials",
+)
+
 
 class FredEconomicEventClient(EconomicEventFetchPort):
     def __init__(
@@ -78,7 +100,35 @@ class FredEconomicEventClient(EconomicEventFetchPort):
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             release_meta = await self._fetch_release_metadata(client)
-            target_ids = [rid for rid, m in release_meta.items() if m.get("press_release")]
+            target_ids: List[int] = []
+            excluded_fomc: List[tuple[int, str]] = []
+            excluded_low_importance = 0
+            for rid, m in release_meta.items():
+                if not m.get("press_release"):
+                    continue
+                name = m.get("name") or ""
+                if self._is_fomc_overlap(name):
+                    excluded_fomc.append((rid, name))
+                    continue
+                # US 일정 중 HIGH 가 아닌 release 는 영구 제외 (시장 영향이 작은
+                # 부수 release 가 DB 에 누적돼 UI 노이즈가 되는 것을 차단).
+                # HIGH 판정 = release 명이 _HIGH_IMPORTANCE_KEYWORDS 중 하나 포함.
+                if self._classify_importance(name) != EventImportance.HIGH:
+                    excluded_low_importance += 1
+                    continue
+                target_ids.append(rid)
+            if excluded_fomc:
+                print(
+                    f"[schedule.fred.events] FOMC 중복 release 제외 {len(excluded_fomc)}건 "
+                    f"(central_bank source 가 캐노니컬): "
+                    f"{[(rid, name) for rid, name in excluded_fomc[:5]]}"
+                    f"{'...' if len(excluded_fomc) > 5 else ''}"
+                )
+            if excluded_low_importance:
+                print(
+                    f"[schedule.fred.events] HIGH 미만 release 제외 {excluded_low_importance}건 "
+                    f"(시장 영향 미미한 부수 release 영구 차단)"
+                )
             print(
                 f"[schedule.fred.events] 릴리즈 메타={len(release_meta)}건, "
                 f"press_release 대상={len(target_ids)}건, 동시={self._release_concurrency}"
@@ -243,3 +293,12 @@ class FredEconomicEventClient(EconomicEventFetchPort):
             if kw.lower() in lowered:
                 return EventImportance.HIGH
         return EventImportance.MEDIUM
+
+    @staticmethod
+    def _is_fomc_overlap(name: str) -> bool:
+        """release 명이 StaticCentralBankEventClient 의 FOMC entry 와 같은 날짜에
+        중복 노출되는 항목인지 판정."""
+        if not name:
+            return False
+        lowered = name.lower()
+        return any(kw in lowered for kw in _FOMC_OVERLAP_KEYWORDS)
