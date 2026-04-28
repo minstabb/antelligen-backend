@@ -168,6 +168,26 @@ def is_fallback_title(event: TimelineEvent) -> bool:
     return event.title == FALLBACK_TITLE.get(event.type, event.type)
 
 
+def announcement_title(ticker: str, event_type: str, source: str) -> str:
+    """ANNOUNCEMENT fallback title에 기업명/식별자 prefix 를 붙여 같은 날 여러 공시가
+    동일한 "주요 공시" 제목으로 붙어 UI에서 중복처럼 보이는 문제를 해결한다(§17 B2).
+
+    - 미국 8-K (sec_edgar): "{ticker} 8-K"
+    - 한국 DART: "{ticker} 주요 공시"
+    - 기타: 기존 fallback 유지
+
+    이 함수가 emit 하는 패턴은 동일 모듈의 is_pseudo_announcement_title_str /
+    is_pseudo_announcement_title 검증자가 매칭한다 — 두 측은 항상 동기 변경.
+    """
+    if not ticker:
+        return FALLBACK_TITLE.get(event_type, event_type)
+    if source and "sec_edgar" in source.lower():
+        return f"{ticker} 8-K"
+    if source and "dart" in source.lower():
+        return f"{ticker} 주요 공시"
+    return f"{ticker} {FALLBACK_TITLE.get(event_type, event_type)}"
+
+
 def is_pseudo_announcement_title_str(title: Optional[str]) -> bool:
     """`_announcement_title()`이 만든 source-기반 prefix 패턴인지 title 문자열만으로 판정.
 

@@ -64,6 +64,7 @@ from app.domains.history_agent.application.service.text_utils import (
 from app.domains.history_agent.application.service.title_generation_service import (
     FALLBACK_TITLE,
     TITLE_MODEL,
+    announcement_title,
     enrich_macro_titles,
     enrich_other_titles,
     is_pseudo_announcement_title_str,
@@ -366,21 +367,8 @@ def _from_corporate_events(result: CorporateEventsResponse) -> List[TimelineEven
     ]
 
 
-def _announcement_title(ticker: str, event_type: str, source: str) -> str:
-    """ANNOUNCEMENT fallback title에 기업명/식별자 prefix를 붙여 같은 날 여러 공시가
-    동일한 "주요 공시" 제목으로 붙어 UI에서 중복처럼 보이는 문제를 해결한다(§17 B2).
-
-    - 미국 8-K (sec_edgar): "{ticker} 8-K"
-    - 한국 DART: "{ticker} 주요 공시"
-    - 기타: 기존 fallback 유지
-    """
-    if not ticker:
-        return FALLBACK_TITLE.get(event_type, event_type)
-    if source and "sec_edgar" in source.lower():
-        return f"{ticker} 8-K"
-    if source and "dart" in source.lower():
-        return f"{ticker} 주요 공시"
-    return f"{ticker} {FALLBACK_TITLE.get(event_type, event_type)}"
+## §17 B2 — _announcement_title 은 service.title_generation_service.announcement_title
+## 로 이전됨 (생성자 + 검증자 응집). 호출부는 _from_announcements 에서 announcement_title 사용.
 
 
 def _from_announcements(
@@ -390,7 +378,7 @@ def _from_announcements(
     return [
         TimelineEvent(
             title=(
-                _announcement_title(ticker_label, e.type, e.source)
+                announcement_title(ticker_label, e.type, e.source)
                 if ticker_label
                 else FALLBACK_TITLE.get(e.type, e.type)
             ),
