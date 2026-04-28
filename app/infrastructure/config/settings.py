@@ -95,6 +95,10 @@ class Settings(BaseSettings):
 
     # Data-source expansion (Tier A/B/C)
     history_holdings_concurrency: int = 3
+    # ETF 분해 시 상위 N 보유 종목까지 CORP+ANN 이벤트 fan-out 수집.
+    # 종목당 yfinance + DART/SEC 호출이 발생하므로 N 이 클수록 응답 시간이 늘어남.
+    # 응답 30 초 이상이 잦으면 3~4 로 낮추거나 holdings 계층 캐시 hit 율을 우선 강화.
+    history_holdings_top_n: int = 5
     history_news_top_n: int = 10
     history_news_per_source_timeout_s: float = 8.0
     history_news_scrape_enabled: bool = False

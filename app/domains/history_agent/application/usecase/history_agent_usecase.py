@@ -1081,9 +1081,15 @@ class HistoryAgentUseCase:
     async def _collect_holdings_events(
         self, etf_ticker: str, period: str
     ) -> List[TimelineEvent]:
-        """ETF 상위 보유 종목에 대해 CORPORATE/ANNOUNCEMENT 이벤트를 수집한다."""
+        """ETF 상위 보유 종목에 대해 CORPORATE/ANNOUNCEMENT 이벤트를 수집한다.
+
+        종목당 yfinance + DART/SEC 외부 호출이 발생하므로 보유 종목 수(N) 와
+        동시성(history_holdings_concurrency) 이 응답 시간을 좌우. settings 의
+        history_holdings_top_n / history_holdings_concurrency 로 운영 튜닝 가능.
+        """
         assert self._etf_holdings_port is not None
-        holdings = await self._etf_holdings_port.get_top_holdings(etf_ticker, top_n=5)
+        top_n = get_settings().history_holdings_top_n
+        holdings = await self._etf_holdings_port.get_top_holdings(etf_ticker, top_n=top_n)
         if not holdings:
             return []
 
