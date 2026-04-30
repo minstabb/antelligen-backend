@@ -11,6 +11,9 @@ from app.domains.schedule.application.response.event_impact_analysis_response im
     EventImpactAnalysisItem,
     ListEventAnalysisResponse,
 )
+from app.domains.schedule.application.usecase.run_event_impact_analysis_usecase import (
+    annotate_duplicate_titles,
+)
 
 
 class GetEventImpactAnalysisUseCase:
@@ -68,4 +71,5 @@ class GetEventImpactAnalysisUseCase:
             )
 
         items.sort(key=lambda it: it.event_at)
+        annotate_duplicate_titles(items, "event_title", "event_country")
         return ListEventAnalysisResponse(items=items)

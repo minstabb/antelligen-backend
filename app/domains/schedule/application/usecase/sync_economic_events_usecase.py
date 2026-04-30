@@ -1,7 +1,7 @@
 import logging
 from collections import defaultdict
 from datetime import date
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from app.common.exception.app_exception import AppException
 from app.domains.schedule.application.port.out.economic_event_fetch_port import (
@@ -9,6 +9,9 @@ from app.domains.schedule.application.port.out.economic_event_fetch_port import 
 )
 from app.domains.schedule.application.port.out.economic_event_repository_port import (
     EconomicEventRepositoryPort,
+)
+from app.domains.schedule.application.port.out.event_disambiguation_port import (
+    EventDisambiguationPort,
 )
 from app.domains.schedule.application.request.sync_economic_events_request import (
     SyncEconomicEventsRequest,
@@ -26,9 +29,11 @@ class SyncEconomicEventsUseCase:
         self,
         fetch_port: EconomicEventFetchPort,
         repository: EconomicEventRepositoryPort,
+        disambiguator: Optional[EventDisambiguationPort] = None,
     ):
         self._fetch_port = fetch_port
         self._repository = repository
+        self._disambiguator = disambiguator
 
     async def execute(self, request: SyncEconomicEventsRequest) -> SyncEconomicEventsResponse:
         base_year = request.year or date.today().year
@@ -72,6 +77,9 @@ class SyncEconomicEventsUseCase:
             seen_pairs.add(key)
             deduped.append(e)
 
+        # (title, event_at) 기준 충돌 그룹은 뉴스 + LLM 으로 해소 (가벼운 길)
+        deduped = await self._disambiguate_title_collisions(deduped)
+
         # source 별로 기존 DB 상 존재 여부 확인
         by_source: Dict[str, List[str]] = defaultdict(list)
         for e in deduped:
@@ -106,3 +114,40 @@ class SyncEconomicEventsUseCase:
             start_date=start.isoformat(),
             end_date=end.isoformat(),
         )
+
+    async def _disambiguate_title_collisions(
+        self, events: List[EconomicEvent]
+    ) -> List[EconomicEvent]:
+        if self._disambiguator is None or len(events) < 2:
+            return events
+
+        groups: Dict[Tuple[str, str], List[EconomicEvent]] = defaultdict(list)
+        for ev in events:
+            key = (
+                (ev.title or "").strip().lower(),
+                ev.event_at.replace(microsecond=0).isoformat(),
+            )
+            groups[key].append(ev)
+
+        out: List[EconomicEvent] = []
+        collision_count = 0
+        for group in groups.values():
+            if len(group) == 1:
+                out.append(group[0])
+                continue
+            collision_count += 1
+            try:
+                kept = await self._disambiguator.resolve(group)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[schedule.sync] disambiguator 실패 — 그룹 첫 후보 유지: %s", exc
+                )
+                kept = [group[0]]
+            out.extend(kept)
+
+        if collision_count:
+            print(
+                f"[schedule.sync] 충돌 해소: groups={collision_count} "
+                f"input={len(events)} → output={len(out)}"
+            )
+        return out

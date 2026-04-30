@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -118,6 +119,31 @@ def _dedupe_overlapping_events(events: List[EconomicEvent]) -> List[EconomicEven
 
     deduped.sort(key=lambda e: e.event_at)
     return deduped
+
+
+def annotate_duplicate_titles(items: list, title_attr: str, country_attr: str) -> None:
+    """같은 (title, country) 가 2건 이상이면 각 title 끝에 ' (M/D)' 를 붙여 식별 가능하게 한다.
+
+    같은 release 가 한 달에 2번 발표(예: Chicago Fed Advance Retail Trade Summary 의
+    월초·월중)되어 응답 윈도우 안에 같은 title 2건이 들어왔을 때 화면이 중복으로
+    보이는 것을 방지한다. 1건이면 손대지 않는다.
+    """
+    if not items:
+        return
+    groups: Dict[tuple, list] = defaultdict(list)
+    for it in items:
+        title = (getattr(it, title_attr) or "").strip()
+        country = getattr(it, country_attr)
+        groups[(title, country)].append(it)
+    for group in groups.values():
+        if len(group) <= 1:
+            continue
+        for it in group:
+            ev_at = getattr(it, "event_at")
+            md = f"{ev_at.month}/{ev_at.day}"
+            current = getattr(it, title_attr) or ""
+            setattr(it, title_attr, f"{current} ({md})")
+
 
 # 프론트 '다가오는 경제 일정' 섹션 하단 안내 문구
 UPCOMING_EVENTS_NOTICE = (
@@ -286,6 +312,9 @@ class RunEventImpactAnalysisUseCase:
         # 다가오는 일주일 경제 일정 (reference_date 익일 ~ +7일)
         upcoming = await self._fetch_upcoming_events(reference_date)
 
+        # 같은 (title, country) 가 윈도우 내 2건 이상이면 ' (M/D)' suffix 로 식별 가능하게
+        annotate_duplicate_titles(items, "event_title", "event_country")
+
         print(
             f"[schedule.analyze] ■ 완료 total={len(events)} analyzed={analyzed} "
             f"skipped={skipped} failed={failed} upcoming_7d={len(upcoming)}"
@@ -333,7 +362,7 @@ class RunEventImpactAnalysisUseCase:
             f"({start.isoformat()}~{end.isoformat()})"
         )
         events.sort(key=lambda e: e.event_at)
-        return [
+        upcoming_items = [
             UpcomingEventItem(
                 event_id=e.id,
                 title=translate_us_event_title(e.title) if e.country == "US" else e.title,
@@ -346,6 +375,8 @@ class RunEventImpactAnalysisUseCase:
             for e in events
             if e.id is not None
         ]
+        annotate_duplicate_titles(upcoming_items, "title", "country")
+        return upcoming_items
 
     async def _ensure_daily_snapshot_event(self, today: date) -> EconomicEvent:
         """경제 일정이 없을 때 사용할 '일일 매크로 스냅샷' 가상 이벤트를 생성/조회.
