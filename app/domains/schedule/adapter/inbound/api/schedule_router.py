@@ -31,6 +31,9 @@ from app.domains.schedule.adapter.outbound.external.yahoo_investment_info_client
 from app.domains.schedule.adapter.outbound.external.openai_event_impact_analyzer import (
     OpenAIEventImpactAnalyzer,
 )
+from app.domains.schedule.adapter.outbound.external.news_backed_event_disambiguator import (
+    NewsBackedEventDisambiguator,
+)
 from app.domains.schedule.adapter.outbound.messaging.notification_broadcaster import (
     get_notification_broadcaster,
 )
@@ -88,11 +91,41 @@ from app.domains.schedule.application.usecase.search_investment_info_usecase imp
 from app.domains.schedule.application.usecase.sync_economic_events_usecase import (
     SyncEconomicEventsUseCase,
 )
+from app.domains.news.adapter.outbound.external.naver_news_client import NaverNewsClient
+from app.domains.news.adapter.outbound.external.serp_news_search_provider import (
+    SerpNewsSearchProvider,
+)
+from app.domains.stock.domain.value_object.market_region import MarketRegion
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.database import get_db
 from app.infrastructure.external.openai_responses_client import get_openai_responses_client
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
+
+
+def _build_event_disambiguator(settings) -> Optional[NewsBackedEventDisambiguator]:
+    """뉴스 검색 키가 모두 부재하면 None — UseCase 가 기존 동작으로 폴백."""
+    serp = None
+    if getattr(settings, "serp_api_key", ""):
+        serp = SerpNewsSearchProvider(
+            api_key=settings.serp_api_key,
+            market_region=MarketRegion.US_NASDAQ,
+        )
+    naver = None
+    if getattr(settings, "naver_client_id", "") and getattr(
+        settings, "naver_client_secret", ""
+    ):
+        naver = NaverNewsClient(
+            client_id=settings.naver_client_id,
+            client_secret=settings.naver_client_secret,
+        )
+    if serp is None and naver is None:
+        return None
+    return NewsBackedEventDisambiguator(
+        serp_provider=serp,
+        naver_client=naver,
+        llm_client=get_openai_responses_client(),
+    )
 
 
 @router.get("", summary="schedule 도메인 엔드포인트 안내")
@@ -199,7 +232,12 @@ async def sync_economic_events(
         ]
     )
     repository = EconomicEventRepositoryImpl(db=db)
-    usecase = SyncEconomicEventsUseCase(fetch_port=fetch_port, repository=repository)
+    disambiguator = _build_event_disambiguator(settings)
+    usecase = SyncEconomicEventsUseCase(
+        fetch_port=fetch_port,
+        repository=repository,
+        disambiguator=disambiguator,
+    )
     result = await usecase.execute(request)
     return BaseResponse.ok(data=result, message="경제 일정 동기화 완료")
 
